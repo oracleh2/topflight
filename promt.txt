@@ -1,0 +1,352 @@
+Системный промпт: Разработка SaaS платформы парсинга позиций Яндекса
+Описание проекта
+Разработать полнофункциональную SaaS платформу для мониторинга позиций сайтов в поисковой выдаче Яндекса с системой браузерных профилей, автоматизацией и веб-админкой.
+Бизнес-модель и монетизация
+Тарификация:
+
+Базовый тариф: 1 рубль за 1 проверку позиции
+Premium тариф (от 20,000₽/мес): 0.8 рубля за проверку + привязка к серверам + приоритет
+Автоматическое назначение тарифов на основе суммы пополнений за месяц
+Система лимитов и балансов пользователей
+
+Пользовательский функционал:
+
+Регистрация и управление аккаунтом
+Добавление доменов и поисковых фраз
+Выбор регионов поиска (обязательный параметр)
+Настройка частоты проверок
+Просмотр истории позиций и аналитики
+
+Техническая архитектура
+Система браузерных профилей
+Управление профилями:
+
+Каждый сервер поддерживает минимум 1000 "теплых" профилей (настраивается)
+Профили создаются с уникальными User-Agent, настройками браузера
+Обязательный прогрев: посещение 3-7 сайтов с Яндекс.Метрикой для получения cookies
+Профиль готов к работе только после успешного прогрева
+
+Каскад профилей (настраивается по доменам):
+
+После использования профиль отправляется на "догуливание" (опционально)
+Количество сайтов для догуливания настраивается в проекте пользователя
+После догуливания: повторное использование или удаление (настраивается)
+
+Мониторинг профилей:
+
+Проверка состояния каждые 30 минут (настраивается)
+Критерии "испорченного" профиля: капча, блокировки, таймауты
+Автоматический перезапуск проблемных профилей
+Критерии перезапуска: старые cookies (>48ч), неактивность (>24ч), ошибки
+
+Система задач и воркеров
+Типы задач:
+
+warmup_profile - создание и прогрев профилей
+parse_serp - парсинг поисковой выдачи
+check_positions - проверка позиций конкретных сайтов
+
+Архитектура воркеров:
+
+Множественные серверы в России (для Яндекса)
+Автомасштабирование воркеров на основе нагрузки
+Heartbeat система для мониторинга состояния воркеров
+Распределение задач по загрузке серверов
+
+Автомасштабирование:
+
+Настройки сервера: max_cpu_percent (75%), max_ram_percent (70%)
+Spawn нового воркера при: очередь >50 задач + ресурсы доступны
+Максимум воркеров = CPU cores × 2
+Проверка каждые 3 минуты
+
+Отказоустойчивость:
+
+Heartbeat мониторинг воркеров
+Возврат задач в очередь при падении воркера
+Retry mechanism (до 3 попыток)
+Graceful shutdown воркеров
+
+Парсинг и анти-детекция
+Браузерная автоматизация:
+
+Playwright (Chrome, Firefox, Opera)
+НЕ headless режим для обхода детекции
+Рандомизация: viewport, user agents, временных задержек
+Имитация человеческого поведения: скроллинг, движения мыши
+Ротация браузеров и профилей
+
+Анти-детекция Яндекса:
+
+Обязательный прогрев профилей через сайты с Яндекс.Метрикой
+Сохранение и восстановление cookies
+Случайные задержки между действиями
+Обработка капчи и блокировок
+
+Структура базы данных PostgreSQL
+Пользователи и тарификация
+sql-- Пользователи
+users: id, email, password_hash, subscription_plan, api_key, balance, created_at, is_active
+
+-- Тарифные планы
+tariff_plans: id, name, description, cost_per_check, min_monthly_topup, server_binding_allowed, priority_level, is_active
+
+-- Баланс и транзакции
+user_balance: user_id, current_balance, reserved_balance, last_topup_amount, last_topup_date
+balance_transactions: user_id, amount, type, description, admin_id, created_at
+
+-- Настройки доменов пользователей
+user_domains: user_id, domain, is_verified, added_at
+user_keywords: user_id, domain_id, keyword, region_id, is_active, check_frequency
+user_domain_settings: user_id, domain_id, region_id, profile_cascade_enabled, cascade_warmup_sites_count, delete_profile_after_cascade
+Профили и их жизненный цикл
+sql-- Профили браузеров
+profiles: id, name, user_agent, cookies(JSON), browser_settings(JSON), proxy_config(JSON), is_warmed_up, status, last_used, warmup_sites_visited, created_at
+
+-- Жизненный цикл профилей
+profile_lifecycle: profile_id, domain_id, current_usage_count, cascade_stage, is_corrupted, corruption_reason, last_health_check, next_health_check
+
+-- Привязка профилей к серверам (Premium)
+user_server_preferences: user_id, preferred_server_id, is_active
+Задачи и результаты
+sql-- Очередь задач
+tasks: id, task_type, status, priority, parameters(JSON), result(JSON), error_message, profile_id, worker_id, created_at, started_at, completed_at
+
+-- Результаты парсинга
+parse_results: id, task_id, keyword, position, url, title, snippet, domain, page_number, parsed_at
+
+-- История позиций
+position_history: user_id, domain_id, keyword_id, position, url, check_date, serp_features(JSON)
+Конфигурация и мониторинг
+sql-- Конфигурация серверов
+server_configs: server_id, hostname, warm_profiles_target, max_cpu_cores, max_cpu_percent, max_ram_percent, spawn_queue_threshold, spawn_check_interval, max_concurrent_workers, profile_health_check_interval
+
+-- Воркеры
+worker_nodes: node_id, hostname, location, status, max_workers, last_heartbeat, capabilities(JSON)
+
+-- Справочник регионов
+regions: region_id, region_code, region_name, country_code
+
+-- Системные настройки
+system_configs: config_key, config_value, description, updated_by, updated_at
+Логирование и аудит
+sql-- Системные логи
+system_logs: id, level, component, server_id, message, details(JSON), user_id, created_at, ip_address
+
+-- Аудит изменений
+audit_trail: id, user_id, admin_id, action_type, table_name, record_id, old_values(JSON), new_values(JSON), created_at, ip_address
+config_changes_log: id, config_level, entity_id, config_key, old_value, new_value, changed_by_user_id, changed_by_admin_id, changed_at, ip_address
+
+-- Финансовые операции
+financial_transactions_log: id, user_id, transaction_id, amount, balance_before, balance_after, operation_type, description, admin_id, created_at
+Мониторинг и аналитика
+sql-- Метрики производительности
+performance_metrics: id, server_id, metric_type, value, measurement_time, details(JSON)
+
+-- Бизнес-метрики
+business_metrics: id, date, metric_name, value, details(JSON)
+user_activity_stats: user_id, date, checks_count, domains_count, last_login, total_spent, registration_source
+
+-- Аналитика задач
+task_analytics: id, date, task_type, total_created, total_completed, total_failed, avg_execution_time, server_id
+parsing_analytics: id, date, user_id, domain_id, successful_checks, failed_checks, total_cost, avg_position, regions_count
+Backup и кэширование
+sql-- Управление бэкапами
+backup_schedule: id, backup_type, schedule_cron, retention_days, storage_path, last_backup_time, next_backup_time, is_enabled
+backup_history: id, backup_type, file_path, file_size, started_at, completed_at, status, error_message
+
+-- Настройки кэша
+cache_settings: cache_key, cache_type, ttl_seconds, is_enabled
+Технологический стек
+Backend
+
+Python 3.11+ - основной язык
+FastAPI - веб-фреймворк для API и админки
+SQLAlchemy 2.0 (async) + Alembic - ORM и миграции
+asyncio + asyncpg - асинхронная работа с PostgreSQL
+Playwright - браузерная автоматизация (НЕ headless)
+Celery + Redis - очереди задач и кэширование
+Pydantic - валидация данных
+
+Frontend
+
+Vue.js 3 + Tailwind CSS - веб-интерфейс
+Vite - сборщик проекта
+Axios - HTTP клиент
+
+Инфраструктура
+
+PostgreSQL 15+ - основная база данных
+Redis 7+ - кэш и брокер сообщений
+Docker + Docker Compose - контейнеризация
+nginx - reverse proxy
+Portainer - управление Docker
+
+Мониторинг
+
+Grafana + Prometheus - метрики и дашборды
+Node Exporter - системные метрики
+Redis/PostgreSQL Exporters - метрики БД
+structlog - структурированное логирование
+
+DevOps
+
+GitHub Actions - CI/CD
+Docker Registry - хранение образов
+pytest - тестирование
+
+Конфигурация по умолчанию
+Система
+
+Хранение логов: 30 дней
+Сбор метрик: каждые 5 минут
+Backup БД: каждые 6 часов
+Retention бэкапов: 30 дней
+
+Сервер
+
+Целевое количество теплых профилей: 1000
+Максимальная загрузка CPU: 75%
+Максимальная загрузка RAM: 70%
+Порог для spawn воркера: 50 задач в очереди
+Интервал проверки spawn: 3 минуты
+Максимум воркеров: CPU cores × 2
+Проверка здоровья профилей: каждые 30 минут
+
+Профили
+
+Количество сайтов для прогрева: 3-7
+Критерии перезапуска: cookies >48ч, неактивность >24ч
+Критерии удаления: капча, блокировки, системные ошибки
+
+Веб-интерфейс
+Пользовательская панель
+
+Регистрация/авторизация/восстановление пароля
+Управление балансом и пополнениями
+Добавление и верификация доменов
+Управление ключевыми словами по доменам
+Выбор регионов поиска (обязательно)
+Настройки профилей для каждого домена
+Просмотр результатов и истории позиций
+Отчеты и аналитика по доменам
+Уведомления о критических изменениях
+
+Админ-панель
+
+Мониторинг всех серверов и воркеров
+Управление профилями и их состоянием
+Просмотр очереди задач и их статусов
+Управление пользователями и тарифами
+Финансовая отчетность и транзакции
+Системные логи и аудит
+Настройки серверов и системы
+Алерты и уведомления
+Бизнес-аналитика и KPI
+
+Система алертов
+Для администраторов
+
+Воркер недоступен >5 минут
+Очередь задач превышает критический размер
+Success rate <85% за час
+Заканчиваются готовые профили
+Сервер работает на максимуме >10 минут
+Ошибки backup'ов
+
+Для пользователей
+
+Баланс <стоимости 10 проверок
+Проблемы с доменами пользователя
+Значительные изменения позиций
+Недоступность региона поиска
+
+Требования к производительности
+
+Поддержка 1000+ одновременных пользователей
+Обработка 10,000+ проверок позиций в день
+Время отклика API <200ms для основных операций
+Время выполнения одной проверки позиции <30 секунд
+Доступность системы 99.5%
+Автоматическое восстановление после сбоев
+
+Безопасность и соответствие
+Безопасность данных
+
+Шифрование паролей (bcrypt)
+Шифрование чувствительных данных в БД
+Secure cookies и HTTPS
+SQL injection защита
+XSS защита
+CSRF токены
+
+Аудит и соответствие
+
+Логирование всех изменений настроек
+Аудит финансовых операций
+Согласие на обработку персональных данных
+Возможность удаления аккаунта
+Backup персональных данных
+
+План этапов разработки
+Этап 1: Фундамент (2-3 недели)
+
+Настройка инфраструктуры (Docker, БД)
+Создание всех таблиц и миграций
+Базовые CRUD операции
+Система конфигураций
+
+Этап 2: Core функциональность (3-4 недели)
+
+Система профилей и их прогрев
+Парсинг SERP с анти-детекцией
+Celery workers и обработка задач
+Автомасштабирование воркеров
+
+Этап 3: Пользовательская система (2-3 недели)
+
+Регистрация и авторизация
+Система тарифов и биллинга
+Управление доменами и ключевыми словами
+Финансовые операции
+
+Этап 4: Frontend (2-3 недели)
+
+Vue.js интерфейс пользователя
+Админ-панель
+Дашборды и аналитика
+Responsive дизайн
+
+Этап 5: Мониторинг (2 недели)
+
+Grafana дашборды
+Система алертов
+Логирование и аудит
+Бизнес-аналитика
+
+Этап 6: Production (1-2 недели)
+
+CI/CD pipeline
+Security hardening
+Backup система
+Load testing
+
+Этап 7: Оптимизация (2-3 недели)
+
+Performance tuning
+Оптимизация БД
+Fine-tuning анти-детекции
+Bug fixing
+
+Общий срок: 14-19 недель (команда 3-5 разработчиков)
+Готовность ко второй версии
+Заложить основы для:
+
+REST API для клиентов
+Webhook система
+Расширенная аналитика
+Интеграции с внешними сервисами
+Мобильное приложение
+Международное расширение
+
+Этот промпт содержит полную техническую спецификацию для реализации всего обсужденного функционала без урезаний.
