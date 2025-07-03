@@ -28,22 +28,29 @@
         </p>
       </div>
       <div class="mt-4 sm:mt-0 sm:ml-16 sm:flex-none space-x-3">
-        <button
-          type="button"
-          class="btn-secondary"
-          @click="showCheckPositionsModal = true"
-          :disabled="!selectedKeywords.length"
-        >
-          Проверить позиции ({{ selectedKeywords.length }})
-        </button>
-        <button
-          type="button"
-          class="btn-primary"
-          @click="showAddModal = true"
-        >
-          Добавить ключевое слово
-        </button>
-      </div>
+  <button
+    type="button"
+    class="btn-secondary"
+    @click="showCheckPositionsModal = true"
+    :disabled="!selectedKeywords.length"
+  >
+    Проверить позиции ({{ selectedKeywords.length }})
+  </button>
+  <button
+    type="button"
+    class="btn-secondary"
+    @click="showBulkModal = true"
+  >
+    Массовое добавление
+  </button>
+  <button
+    type="button"
+    class="btn-primary"
+    @click="showAddModal = true"
+  >
+    Добавить ключевое слово
+  </button>
+</div>
     </div>
 
     <!-- Loading state -->
@@ -297,6 +304,15 @@
       </template>
     </Modal>
   </div>
+    <!-- Bulk add keywords modal -->
+    <BulkKeywordModal
+      :isOpen="showBulkModal"
+      :domainId="id"
+      @close="showBulkModal = false"
+      @success="handleBulkKeywordsAdded"
+    />
+
+
 </template>
 
 <script setup lang="ts">
@@ -319,6 +335,7 @@ import Alert from '@/components/ui/Alert.vue'
 import Modal from '@/components/ui/Modal.vue'
 import AddKeywordModal from '@/components/modals/AddKeywordModal.vue'
 import CheckPositionsModal from '@/components/modals/CheckPositionsModal.vue'
+import BulkKeywordModal from '@/components/modals/BulkKeywordModal.vue'
 
 interface Props {
   id: string
@@ -332,6 +349,7 @@ const domainsStore = useDomainsStore()
 const tasksStore = useTasksStore()
 
 const showAddModal = ref(false)
+const showBulkModal = ref(false)
 const showCheckPositionsModal = ref(false)
 const showDeleteModal = ref(false)
 const keywordToDelete = ref<Keyword | null>(null)
@@ -375,6 +393,13 @@ const selectAll = () => {
 const handleKeywordAdded = () => {
   showAddModal.value = false
   selectedKeywords.value = []
+}
+
+const handleBulkKeywordsAdded = (keywords: string[]) => {
+  showBulkModal.value = false
+  selectedKeywords.value = []
+  // Показываем уведомление об успешном добавлении
+  console.log(`Добавлено ${keywords.length} ключевых слов`)
 }
 
 const handlePositionsChecked = () => {

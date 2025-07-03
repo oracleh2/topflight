@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
+import axios, { AxiosInstance, AxiosResponse } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 
 class ApiClient {
@@ -128,20 +128,8 @@ class ApiClient {
     return this.client.post('/billing/topup', { amount })
   }
 
-  // Временно отключен до исправления backend
   async getCurrentTariff() {
-    // return this.client.get('/billing/tariff')
-    return Promise.resolve({
-      data: {
-        id: '1',
-        name: 'Premium',
-        description: 'Премиум тариф',
-        cost_per_check: 0.80,
-        min_monthly_topup: 20000.00,
-        server_binding_allowed: true,
-        priority_level: 10
-      }
-    })
+    return this.client.get('/billing/tariff')
   }
 
   async getTransactionHistory(limit = 50, offset = 0) {
@@ -180,56 +168,6 @@ class ApiClient {
   async getUserTasks(limit = 50, offset = 0, status?: string) {
     return this.client.get('/tasks/my-tasks', {
       params: { limit, offset, ...(status && { status }) }
-    })
-  }
-
-  // Bulk keyword methods
-  async loadKeywordsFromTextFile(url: string) {
-    return this.client.post('/domains/keywords/load-from-text', { url })
-  }
-
-  async loadKeywordsFromExcel(url: string, sheet: number = 1, startRow: number = 1) {
-    return this.client.post('/domains/keywords/load-from-excel', {
-      url,
-      sheet,
-      start_row: startRow
-    })
-  }
-
-  async loadKeywordsFromWord(url: string) {
-    return this.client.post('/domains/keywords/load-from-word', { url })
-  }
-
-  async addBulkKeywords(domainId: string, keywords: string[], regionId: string, deviceType: string) {
-    return this.client.post(`/domains/${domainId}/keywords/bulk`, {
-      keywords,
-      region_id: regionId,
-      device_type: deviceType
-    })
-  }
-
-  // Bulk keyword methods
-  async loadKeywordsFromTextFile(url: string) {
-    return this.client.post('/domains/keywords/load-from-text', { url })
-  }
-
-  async loadKeywordsFromExcel(url: string, sheet: number = 1, startRow: number = 1) {
-    return this.client.post('/domains/keywords/load-from-excel', {
-      url,
-      sheet,
-      start_row: startRow
-    })
-  }
-
-  async loadKeywordsFromWord(url: string) {
-    return this.client.post('/domains/keywords/load-from-word', { url })
-  }
-
-  async addBulkKeywords(domainId: string, keywords: string[], regionId: string, deviceType: string) {
-    return this.client.post(`/domains/${domainId}/keywords/bulk`, {
-      keywords,
-      region_id: regionId,
-      device_type: deviceType
     })
   }
 }

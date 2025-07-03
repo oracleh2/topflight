@@ -1,173 +1,206 @@
 <template>
-  <Modal
-    :isOpen="isOpen"
-    title="Быстрый парсинг"
-    panel-class="max-w-lg"
-    @close="$emit('close')"
-  >
-    <form @submit.prevent="handleSubmit">
-      <div class="space-y-4">
-        <div>
-          <label for="keyword" class="block text-sm font-medium text-gray-700">
-            Ключевое слово
-          </label>
-          <input
-            id="keyword"
-            v-model="form.keyword"
-            type="text"
-            class="input mt-1"
-            :class="{ 'border-red-500': errors.keyword }"
-            placeholder="Введите поисковый запрос"
-            @input="clearError('keyword')"
-          />
-          <p v-if="errors.keyword" class="mt-1 text-sm text-red-600">
-            {{ errors.keyword }}
-          </p>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label for="pages" class="block text-sm font-medium text-gray-700">
-              Количество страниц
-            </label>
-            <select
-              id="pages"
-              v-model.number="form.pages"
-              class="input mt-1"
-            >
-              <option :value="1">1 страница</option>
-              <option :value="3">3 страницы</option>
-              <option :value="5">5 страниц</option>
-              <option :value="10">10 страниц</option>
-              <option :value="20">20 страниц</option>
-            </select>
-          </div>
-
-          <div>
-            <label for="region" class="block text-sm font-medium text-gray-700">
-              Регион
-            </label>
-            <select
-              id="region"
-              v-model="form.regionCode"
-              class="input mt-1"
-            >
-              <option value="213">Москва</option>
-              <option value="2">Санкт-Петербург</option>
-              <option value="54">Екатеринбург</option>
-              <option value="65">Новосибирск</option>
-              <option value="35">Краснодар</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700">
-            Тип устройства
-          </label>
-          <div class="mt-2 space-y-2">
-            <label class="flex items-center">
-              <input
-                v-model="form.deviceType"
-                type="radio"
-                value="desktop"
-                class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+  <div class="space-y-6">
+    <!-- Stats cards -->
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        v-for="stat in stats"
+        :key="stat.name"
+        class="bg-white overflow-hidden shadow rounded-lg"
+      >
+        <div class="p-5">
+          <div class="flex items-center">
+            <div class="flex-shrink-0">
+              <component
+                :is="stat.icon"
+                class="h-6 w-6 text-gray-400"
+                aria-hidden="true"
               />
-              <span class="ml-2 text-sm text-gray-700 flex items-center">
-                <ComputerDesktopIcon class="mr-1 h-4 w-4" />
-                Десктоп
-              </span>
-            </label>
-            <label class="flex items-center">
-              <input
-                v-model="form.deviceType"
-                type="radio"
-                value="mobile"
-                class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-              />
-              <span class="ml-2 text-sm text-gray-700 flex items-center">
-                <DevicePhoneMobileIcon class="mr-1 h-4 w-4" />
-                Мобильный
-              </span>
-            </label>
+            </div>
+            <div class="ml-5 w-0 flex-1">
+              <dl>
+                <dt class="text-sm font-medium text-gray-500 truncate">
+                  {{ stat.name }}
+                </dt>
+                <dd>
+                  <div class="text-lg font-medium text-gray-900">
+                    {{ stat.value }}
+                  </div>
+                </dd>
+              </dl>
+            </div>
           </div>
         </div>
-
-        <!-- Cost calculation -->
-        <div v-if="estimatedCost" class="rounded-md bg-blue-50 p-4">
-          <div class="flex justify-between items-center">
-            <span class="text-sm text-blue-700">Ориентировочная стоимость:</span>
-            <span class="text-sm font-semibold text-blue-900">
-              {{ formatCurrency(estimatedCost) }}
-            </span>
+        <div class="bg-gray-50 px-5 py-3">
+          <div class="text-sm">
+            <router-link
+              :to="stat.href"
+              class="font-medium text-primary-700 hover:text-primary-900"
+            >
+              {{ stat.action }}
+            </router-link>
           </div>
         </div>
       </div>
+    </div>
 
-      <Alert
-        v-if="tasksStore.error"
-        type="error"
-        :message="tasksStore.error"
-        class="mt-4"
-        dismissible
-        @dismiss="tasksStore.error = null"
-      />
-    </form>
+    <!-- Quick actions -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h3 class="text-lg font-medium text-gray-900">Быстрые действия</h3>
+      </div>
+      <div class="p-6">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <router-link
+            to="/domains"
+            class="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            <div class="flex-shrink-0">
+              <GlobeAltIcon class="h-6 w-6 text-gray-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-900">Добавить домен</p>
+              <p class="text-sm text-gray-500 truncate">Начать отслеживание</p>
+            </div>
+          </router-link>
 
-    <template #actions>
-      <button
-        type="button"
-        class="btn-secondary"
-        @click="$emit('close')"
-      >
-        Отмена
-      </button>
-      <button
-        type="button"
-        class="btn-primary ml-3"
-        @click="handleSubmit"
-        :disabled="tasksStore.loading"
-      >
-        <Spinner v-if="tasksStore.loading" class="mr-2 h-4 w-4" />
-        Создать задачу
-      </button>
-    </template>
-  </Modal>
+          <router-link
+            to="/profile"
+            class="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            <div class="flex-shrink-0">
+              <UserIcon class="h-6 w-6 text-gray-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-900">API ключ</p>
+              <p class="text-sm text-gray-500 truncate">Настройки интеграции</p>
+            </div>
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- Welcome message for new users -->
+    <div v-if="!authStore.user?.domains_count" class="bg-blue-50 border border-blue-200 rounded-lg p-6">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <GlobeAltIcon class="h-6 w-6 text-blue-600" aria-hidden="true" />
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-blue-800">
+            Добро пожаловать в Yandex Parser!
+          </h3>
+          <div class="mt-2 text-sm text-blue-700">
+            <p>
+              Для начала работы добавьте домен для отслеживания позиций в поисковой выдаче Яндекса.
+            </p>
+          </div>
+          <div class="mt-4">
+            <div class="-mx-2 -my-1.5 flex">
+              <router-link
+                to="/domains"
+                class="bg-blue-100 px-2 py-1.5 rounded-md text-sm font-medium text-blue-800 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-50 focus:ring-blue-600"
+              >
+                Добавить домен
+              </router-link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent activity -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h3 class="text-lg font-medium text-gray-900">Последние задачи</h3>
+      </div>
+      <div class="divide-y divide-gray-200">
+        <div
+          v-if="recentTasks.length === 0"
+          class="px-6 py-4 text-center text-gray-500"
+        >
+          <ClipboardDocumentListIcon class="mx-auto h-12 w-12 text-gray-300" />
+          <h3 class="mt-2 text-sm font-medium text-gray-900">Задач пока нет</h3>
+          <p class="mt-1 text-sm text-gray-500">
+            Добавьте домены и ключевые слова для начала отслеживания
+          </p>
+        </div>
+        <div
+          v-for="task in recentTasks"
+          :key="task.task_id"
+          class="px-6 py-4 hover:bg-gray-50"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-900 truncate">
+                {{ getTaskDescription(task) }}
+              </p>
+              <p class="text-sm text-gray-500">
+                {{ formatDate(task.created_at) }}
+              </p>
+            </div>
+            <div class="flex-shrink-0">
+              <span
+                :class="[
+                  'inline-flex px-2 py-1 text-xs font-medium rounded-full',
+                  getTaskStatusClass(task.status)
+                ]"
+              >
+                {{ getTaskStatusText(task.status) }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, watch } from 'vue'
-import { ComputerDesktopIcon, DevicePhoneMobileIcon } from '@heroicons/vue/24/outline'
-import { useTasksStore } from '@/stores/tasks'
-import { useBillingStore } from '@/stores/billing'
-import Modal from '@/components/ui/Modal.vue'
-import Alert from '@/components/ui/Alert.vue'
-import Spinner from '@/components/ui/Spinner.vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import {
+  GlobeAltIcon,
+  ClipboardDocumentListIcon,
+  CurrencyDollarIcon,
+  UserIcon,
+} from '@heroicons/vue/24/outline'
+import { useAuthStore } from '@/stores/auth'
 
-interface Props {
-  isOpen: boolean
-}
+const router = useRouter()
+const authStore = useAuthStore()
 
-interface Emits {
-  (e: 'close'): void
-  (e: 'success', taskId: string): void
-}
+const recentTasks = ref([])
 
-defineProps<Props>()
-const emit = defineEmits<Emits>()
-
-const tasksStore = useTasksStore()
-const billingStore = useBillingStore()
-
-const form = reactive({
-  keyword: '',
-  pages: 10,
-  regionCode: '213',
-  deviceType: 'desktop'
-})
-
-const errors = ref<Record<string, string>>({})
-const estimatedCost = ref<number>(0)
+const stats = computed(() => [
+  {
+    name: 'Домены',
+    value: authStore.user?.domains_count || 0,
+    icon: GlobeAltIcon,
+    href: '/domains',
+    action: 'Управлять доменами'
+  },
+  {
+    name: 'Ключевые слова',
+    value: authStore.user?.keywords_count || 0,
+    icon: ClipboardDocumentListIcon,
+    href: '/domains',
+    action: 'Добавить слова'
+  },
+  {
+    name: 'Баланс',
+    value: formatCurrency(authStore.user?.current_balance || authStore.user?.balance || 0),
+    icon: CurrencyDollarIcon,
+    href: '/billing',
+    action: 'Пополнить баланс'
+  },
+  {
+    name: 'Активные задачи',
+    value: recentTasks.value.length,
+    icon: ClipboardDocumentListIcon,
+    href: '/tasks',
+    action: 'Посмотреть все'
+  }
+])
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('ru-RU', {
@@ -177,61 +210,42 @@ const formatCurrency = (amount: number) => {
   }).format(amount)
 }
 
-const validateForm = () => {
-  errors.value = {}
-
-  if (!form.keyword.trim()) {
-    errors.value.keyword = 'Ключевое слово обязательно'
-  }
-
-  return Object.keys(errors.value).length === 0
+const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleString('ru-RU')
 }
 
-const clearError = (field: string) => {
-  if (errors.value[field]) {
-    delete errors.value[field]
-  }
+const getTaskDescription = (task: any) => {
+  return `Задача ${task.task_type || 'неизвестна'}`
 }
 
-const calculateCost = async () => {
-  try {
-    const result = await billingStore.calculateCheckCost(1)
-    estimatedCost.value = result.total_cost
-  } catch (error) {
-    console.error('Error calculating cost:', error)
+const getTaskStatusText = (status: string) => {
+  const statusMap: Record<string, string> = {
+    pending: 'Ожидает',
+    running: 'Выполняется',
+    completed: 'Завершено',
+    failed: 'Ошибка'
   }
+  return statusMap[status] || status
 }
 
-const handleSubmit = async () => {
-  if (!validateForm()) {
-    return
+const getTaskStatusClass = (status: string) => {
+  const classMap: Record<string, string> = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    running: 'bg-blue-100 text-blue-800',
+    completed: 'bg-green-100 text-green-800',
+    failed: 'bg-red-100 text-red-800'
   }
-
-  try {
-    const result = await tasksStore.createParseTask(
-      form.keyword.trim(),
-      form.deviceType,
-      form.pages,
-      form.regionCode
-    )
-
-    // Сбрасываем форму
-    form.keyword = ''
-    form.pages = 10
-    form.regionCode = '213'
-    form.deviceType = 'desktop'
-    errors.value = {}
-
-    emit('success', result.task_id)
-  } catch (error) {
-    console.error('Error creating parse task:', error)
-  }
+  return classMap[status] || 'bg-gray-100 text-gray-800'
 }
 
-// Рассчитываем стоимость при открытии модального окна
-watch(() => props.isOpen, (isOpen) => {
-  if (isOpen) {
-    calculateCost()
+onMounted(async () => {
+  // Загружаем данные при монтировании
+  if (authStore.isAuthenticated && !authStore.user) {
+    try {
+      await authStore.fetchProfile()
+    } catch (error) {
+      console.error('Ошибка загрузки профиля:', error)
+    }
   }
 })
 </script>

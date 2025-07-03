@@ -47,7 +47,7 @@
     <!-- Main content -->
     <div class="lg:pl-64 flex flex-col flex-1">
       <!-- Top navigation -->
-      <div class="relative z-10 flex-shrink-0 flex h-16 bg-white shadow border-b border-gray-200 lg:border-none">
+      <div class="relative z-10 flex-shrink-0 flex h-16 bg-white shadow border-b border-gray-200">
         <button
           type="button"
           class="px-4 border-r border-gray-200 text-gray-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 lg:hidden"
@@ -62,29 +62,24 @@
             <h1 class="text-lg font-semibold text-gray-900">{{ pageTitle }}</h1>
           </div>
 
-          <div class="ml-4 flex items-center md:ml-6 space-x-4">
-            <!-- Balance -->
-            <div class="flex items-center space-x-2 text-sm">
-              <CurrencyRubleIcon class="h-4 w-4 text-gray-400" />
-              <span class="text-gray-600">Баланс:</span>
-              <span class="font-medium text-gray-900">
-                {{ formatCurrency(authStore.availableBalance) }}
+          <div class="ml-4 flex items-center md:ml-6">
+            <!-- Balance info -->
+            <div class="hidden md:flex items-center mr-4 px-3 py-1 bg-gray-100 rounded-md">
+              <CurrencyDollarIcon class="h-4 w-4 text-gray-500 mr-1" />
+              <span class="text-sm font-medium text-gray-700">
+                {{ formatCurrency(authStore.user?.current_balance || authStore.user?.balance || 0) }}
               </span>
             </div>
 
-            <!-- User menu -->
+            <!-- Profile dropdown -->
             <Menu as="div" class="relative">
               <div>
-                <MenuButton class="max-w-xs bg-white rounded-full flex items-center text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 lg:p-2 lg:rounded-md lg:hover:bg-gray-50">
+                <MenuButton class="max-w-xs bg-white flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                  <span class="sr-only">Open user menu</span>
                   <div class="h-8 w-8 rounded-full bg-primary-600 flex items-center justify-center">
-                    <span class="text-sm font-medium text-white">
-                      {{ userInitials }}
-                    </span>
+                    <span class="text-xs font-medium text-white">{{ userInitials }}</span>
                   </div>
-                  <span class="hidden ml-3 text-gray-700 text-sm font-medium lg:block">
-                    {{ authStore.user?.email }}
-                  </span>
-                  <ChevronDownIcon class="hidden ml-1 h-4 w-4 text-gray-400 lg:block" />
+                  <ChevronDownIcon class="ml-2 h-4 w-4 text-gray-400" />
                 </MenuButton>
               </div>
 
@@ -96,7 +91,14 @@
                 leave-from-class="transform opacity-100 scale-100"
                 leave-to-class="transform opacity-0 scale-95"
               >
-                <MenuItems class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none">
+                <MenuItems class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
+                  <MenuItem v-slot="{ active }">
+                    <div class="px-4 py-3 border-b border-gray-100">
+                      <p class="text-sm text-gray-500">Вошли как</p>
+                      <p class="text-sm font-medium text-gray-900 truncate">{{ authStore.user?.email }}</p>
+                    </div>
+                  </MenuItem>
+
                   <MenuItem v-slot="{ active }">
                     <router-link
                       to="/profile"
@@ -121,9 +123,10 @@
         </div>
       </div>
 
-      <!-- Page content -->
+      <!-- Page content with max width -->
       <main class="flex-1">
         <div class="py-6">
+          <!-- Ограничиваем ширину контента -->
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <router-view />
           </div>
@@ -178,7 +181,6 @@
                 </div>
               </TransitionChild>
 
-              <!-- Mobile navigation -->
               <div class="flex-shrink-0 flex items-center px-4">
                 <div class="h-8 w-8 bg-primary-600 rounded-lg flex items-center justify-center">
                   <span class="text-white font-bold text-sm">YP</span>
@@ -235,7 +237,7 @@ import {
 import {
   Bars3Icon,
   ChevronDownIcon,
-  CurrencyRubleIcon,
+  CurrencyDollarIcon,
   XMarkIcon,
   HomeIcon,
   GlobeAltIcon,
@@ -271,7 +273,8 @@ const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
     currency: 'RUB',
-    minimumFractionDigits: 2
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   }).format(amount)
 }
 </script>

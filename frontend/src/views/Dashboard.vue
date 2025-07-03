@@ -1,18 +1,18 @@
 <template>
-  <div class="space-y-6">
+  <div class="space-y-8">
     <!-- Stats cards -->
-    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
       <div
         v-for="stat in stats"
         :key="stat.name"
-        class="bg-white overflow-hidden shadow rounded-lg"
+        class="bg-white overflow-hidden shadow-sm rounded-lg hover:shadow-md transition-shadow"
       >
-        <div class="p-5">
+        <div class="p-6">
           <div class="flex items-center">
             <div class="flex-shrink-0">
               <component
                 :is="stat.icon"
-                class="h-6 w-6 text-gray-400"
+                class="h-8 w-8 text-gray-400"
                 aria-hidden="true"
               />
             </div>
@@ -22,7 +22,7 @@
                   {{ stat.name }}
                 </dt>
                 <dd>
-                  <div class="text-lg font-medium text-gray-900">
+                  <div class="text-2xl font-bold text-gray-900">
                     {{ stat.value }}
                   </div>
                 </dd>
@@ -30,11 +30,11 @@
             </div>
           </div>
         </div>
-        <div class="bg-gray-50 px-5 py-3">
+        <div class="bg-gray-50 px-6 py-3">
           <div class="text-sm">
             <router-link
               :to="stat.href"
-              class="font-medium text-primary-700 hover:text-primary-900"
+              class="font-medium text-primary-700 hover:text-primary-900 transition-colors"
             >
               {{ stat.action }}
             </router-link>
@@ -43,160 +43,135 @@
       </div>
     </div>
 
-    <!-- Recent activity -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <!-- Recent tasks -->
-      <div class="bg-white shadow rounded-lg">
-        <div class="px-6 py-4 border-b border-gray-200">
-          <h3 class="text-lg font-medium text-gray-900">Последние задачи</h3>
+    <!-- Main content grid -->
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+      <!-- Left column - Quick actions -->
+      <div class="xl:col-span-2 space-y-8">
+        <!-- Quick actions -->
+        <div class="bg-white shadow-sm rounded-lg">
+          <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-medium text-gray-900">Быстрые действия</h3>
+          </div>
+          <div class="p-6">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <router-link
+                to="/domains"
+                class="relative rounded-lg border-2 border-dashed border-gray-300 p-6 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors group"
+              >
+                <div class="text-center">
+                  <GlobeAltIcon class="mx-auto h-12 w-12 text-gray-400 group-hover:text-gray-500" />
+                  <span class="mt-2 block text-sm font-medium text-gray-900">
+                    Добавить домен
+                  </span>
+                  <span class="mt-1 block text-sm text-gray-500">
+                    Начать отслеживание позиций
+                  </span>
+                </div>
+              </router-link>
+
+              <router-link
+                to="/profile"
+                class="relative rounded-lg border-2 border-dashed border-gray-300 p-6 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors group"
+              >
+                <div class="text-center">
+                  <UserIcon class="mx-auto h-12 w-12 text-gray-400 group-hover:text-gray-500" />
+                  <span class="mt-2 block text-sm font-medium text-gray-900">
+                    API ключ
+                  </span>
+                  <span class="mt-1 block text-sm text-gray-500">
+                    Настройки интеграции
+                  </span>
+                </div>
+              </router-link>
+            </div>
+          </div>
         </div>
-        <div class="divide-y divide-gray-200">
-          <div
-            v-for="task in recentTasks"
-            :key="task.task_id"
-            class="px-6 py-4 hover:bg-gray-50"
-          >
-            <div class="flex items-center justify-between">
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-gray-900 truncate">
-                  {{ getTaskDescription(task) }}
-                </p>
-                <p class="text-sm text-gray-500">
-                  {{ formatDate(task.created_at) }}
+
+        <!-- Welcome message for new users -->
+        <div v-if="!authStore.user?.domains_count" class="bg-blue-50 border border-blue-200 rounded-lg p-6">
+          <div class="flex">
+            <div class="flex-shrink-0">
+              <GlobeAltIcon class="h-6 w-6 text-blue-600" aria-hidden="true" />
+            </div>
+            <div class="ml-3">
+              <h3 class="text-sm font-medium text-blue-800">
+                Добро пожаловать в Yandex Parser!
+              </h3>
+              <div class="mt-2 text-sm text-blue-700">
+                <p>
+                  Для начала работы добавьте домен для отслеживания позиций в поисковой выдаче Яндекса.
                 </p>
               </div>
-              <div class="ml-4 flex-shrink-0">
-                <span
-                  :class="[
-                    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                    getTaskStatusClass(task.status)
-                  ]"
-                >
-                  {{ getTaskStatusText(task.status) }}
-                </span>
+              <div class="mt-4">
+                <div class="-mx-2 -my-1.5 flex">
+                  <router-link
+                    to="/domains"
+                    class="bg-blue-100 px-3 py-2 rounded-md text-sm font-medium text-blue-800 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-50 focus:ring-blue-600 transition-colors"
+                  >
+                    Добавить домен
+                  </router-link>
+                </div>
               </div>
             </div>
           </div>
-
-          <div v-if="!recentTasks.length" class="px-6 py-8 text-center">
-            <p class="text-gray-500">Задач пока нет</p>
-          </div>
-        </div>
-        <div class="bg-gray-50 px-6 py-3">
-          <router-link
-            to="/tasks"
-            class="text-sm font-medium text-primary-700 hover:text-primary-900"
-          >
-            Все задачи →
-          </router-link>
         </div>
       </div>
 
-      <!-- Balance and billing -->
-      <div class="bg-white shadow rounded-lg">
-        <div class="px-6 py-4 border-b border-gray-200">
-          <h3 class="text-lg font-medium text-gray-900">Баланс и биллинг</h3>
-        </div>
-        <div class="p-6">
-          <div class="space-y-4">
-            <div class="flex justify-between items-center">
-              <span class="text-sm text-gray-500">Доступный баланс</span>
-              <span class="text-lg font-semibold text-gray-900">
-                {{ formatCurrency(billingStore.balance?.available_balance || 0) }}
-              </span>
+      <!-- Right column - Recent activity -->
+      <div class="space-y-8">
+        <div class="bg-white shadow-sm rounded-lg">
+          <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-medium text-gray-900">Последние задачи</h3>
+          </div>
+          <div class="divide-y divide-gray-200">
+            <div
+              v-if="recentTasks.length === 0"
+              class="px-6 py-8 text-center"
+            >
+              <ClipboardDocumentListIcon class="mx-auto h-12 w-12 text-gray-300" />
+              <h3 class="mt-2 text-sm font-medium text-gray-900">Задач пока нет</h3>
+              <p class="mt-1 text-sm text-gray-500">
+                Добавьте домены и ключевые слова для начала отслеживания
+              </p>
             </div>
-
-            <div class="flex justify-between items-center">
-              <span class="text-sm text-gray-500">Зарезервировано</span>
-              <span class="text-sm text-gray-600">
-                {{ formatCurrency(billingStore.balance?.reserved_balance || 0) }}
-              </span>
-            </div>
-
-            <div class="flex justify-between items-center">
-              <span class="text-sm text-gray-500">Текущий тариф</span>
-              <span class="text-sm text-gray-900 font-medium">
-                {{ billingStore.currentTariff?.name || 'Базовый' }}
-              </span>
-            </div>
-
-            <div class="flex justify-between items-center">
-              <span class="text-sm text-gray-500">Стоимость проверки</span>
-              <span class="text-sm text-gray-900">
-                {{ formatCurrency(billingStore.currentTariff?.cost_per_check || 1) }}
-              </span>
+            <div
+              v-for="task in recentTasks"
+              :key="task.task_id"
+              class="px-6 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div class="flex items-center justify-between">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-900 truncate">
+                    {{ getTaskDescription(task) }}
+                  </p>
+                  <p class="text-sm text-gray-500">
+                    {{ formatDate(task.created_at) }}
+                  </p>
+                </div>
+                <div class="flex-shrink-0">
+                  <span
+                    :class="[
+                      'inline-flex px-2 py-1 text-xs font-medium rounded-full',
+                      getTaskStatusClass(task.status)
+                    ]"
+                  >
+                    {{ getTaskStatusText(task.status) }}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
-
-          <div class="mt-6">
+          <div v-if="recentTasks.length > 0" class="px-6 py-3 bg-gray-50">
             <router-link
-              to="/billing"
-              class="btn-primary w-full text-center"
+              to="/tasks"
+              class="text-sm font-medium text-primary-700 hover:text-primary-900"
             >
-              Пополнить баланс
+              Посмотреть все задачи →
             </router-link>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- Quick actions -->
-    <div class="bg-white shadow rounded-lg">
-      <div class="px-6 py-4 border-b border-gray-200">
-        <h3 class="text-lg font-medium text-gray-900">Быстрые действия</h3>
-      </div>
-      <div class="p-6">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <router-link
-            to="/domains"
-            class="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            <div class="flex-shrink-0">
-              <GlobeAltIcon class="h-6 w-6 text-gray-400" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <span class="absolute inset-0" aria-hidden="true" />
-              <p class="text-sm font-medium text-gray-900">Добавить домен</p>
-              <p class="text-sm text-gray-500 truncate">Начните отслеживать новый сайт</p>
-            </div>
-          </router-link>
-
-          <button
-            @click="showParseModal = true"
-            class="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            <div class="flex-shrink-0">
-              <MagnifyingGlassIcon class="h-6 w-6 text-gray-400" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-gray-900">Парсить выдачу</p>
-              <p class="text-sm text-gray-500 truncate">Быстрый парсинг по запросу</p>
-            </div>
-          </button>
-
-          <router-link
-            to="/profile"
-            class="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            <div class="flex-shrink-0">
-              <UserIcon class="h-6 w-6 text-gray-400" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <span class="absolute inset-0" aria-hidden="true" />
-              <p class="text-sm font-medium text-gray-900">API ключ</p>
-              <p class="text-sm text-gray-500 truncate">Настройки интеграции</p>
-            </div>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Quick parse modal -->
-    <QuickParseModal
-      :isOpen="showParseModal"
-      @close="showParseModal = false"
-      @success="handleParseSuccess"
-    />
   </div>
 </template>
 
@@ -206,23 +181,14 @@ import { useRouter } from 'vue-router'
 import {
   GlobeAltIcon,
   ClipboardDocumentListIcon,
-  CurrencyRubleIcon,
+  CurrencyDollarIcon,
   UserIcon,
-  MagnifyingGlassIcon,
 } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
-import { useDomainsStore } from '@/stores/domains'
-import { useBillingStore } from '@/stores/billing'
-import { useTasksStore } from '@/stores/tasks'
-import QuickParseModal from '@/components/modals/QuickParseModal.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const domainsStore = useDomainsStore()
-const billingStore = useBillingStore()
-const tasksStore = useTasksStore()
 
-const showParseModal = ref(false)
 const recentTasks = ref([])
 
 const stats = computed(() => [
@@ -242,17 +208,17 @@ const stats = computed(() => [
   },
   {
     name: 'Баланс',
-    value: formatCurrency(authStore.availableBalance),
-    icon: CurrencyRubleIcon,
+    value: formatCurrency(authStore.user?.current_balance || authStore.user?.balance || 0),
+    icon: CurrencyDollarIcon,
     href: '/billing',
-    action: 'Пополнить'
+    action: 'Пополнить баланс'
   },
   {
-    name: 'Тариф',
-    value: billingStore.currentTariff?.name || 'Базовый',
-    icon: UserIcon,
-    href: '/billing',
-    action: 'Изменить тариф'
+    name: 'Активные задачи',
+    value: recentTasks.value.length,
+    icon: ClipboardDocumentListIcon,
+    href: '/tasks',
+    action: 'Посмотреть все'
   }
 ])
 
@@ -266,28 +232,16 @@ const formatCurrency = (amount: number) => {
 }
 
 const formatDate = (dateString: string) => {
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(dateString))
+  return new Date(dateString).toLocaleString('ru-RU')
 }
 
 const getTaskDescription = (task: any) => {
-  if (task.task_type === 'parse_serp') {
-    return `Парсинг: ${task.parameters?.keyword || 'неизвестный запрос'}`
-  } else if (task.task_type === 'check_positions') {
-    return `Проверка позиций: ${task.parameters?.keyword_ids?.length || 0} слов`
-  } else if (task.task_type === 'warmup_profile') {
-    return 'Прогрев профиля'
-  }
-  return task.task_type
+  return `Задача ${task.task_type || 'неизвестна'}`
 }
 
 const getTaskStatusText = (status: string) => {
   const statusMap: Record<string, string> = {
-    pending: 'В очереди',
+    pending: 'Ожидает',
     running: 'Выполняется',
     completed: 'Завершено',
     failed: 'Ошибка'
@@ -305,23 +259,14 @@ const getTaskStatusClass = (status: string) => {
   return classMap[status] || 'bg-gray-100 text-gray-800'
 }
 
-const handleParseSuccess = (taskId: string) => {
-  showParseModal.value = false
-  router.push(`/tasks`)
-}
-
 onMounted(async () => {
-  try {
-    await Promise.all([
-      billingStore.fetchBalance(),
-      billingStore.fetchCurrentTariff(),
-      // Загружаем последние задачи
-      tasksStore.fetchUserTasks(10, 0)
-    ])
-
-    recentTasks.value = tasksStore.tasks.slice(0, 5)
-  } catch (error) {
-    console.error('Error loading dashboard data:', error)
+  // Загружаем данные при монтировании
+  if (authStore.isAuthenticated && !authStore.user) {
+    try {
+      await authStore.fetchProfile()
+    } catch (error) {
+      console.error('Ошибка загрузки профиля:', error)
+    }
   }
 })
 </script>
