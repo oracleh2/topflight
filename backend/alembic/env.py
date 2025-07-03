@@ -32,8 +32,14 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+# def get_url():
+#     """Получаем URL базы данных из настроек"""
+#     return settings.database_url
+
 def get_url():
     """Получаем URL базы данных из настроек"""
+    # Используйте полный путь к свойству
+    from app.config import settings
     return settings.database_url
 
 

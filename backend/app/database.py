@@ -1,11 +1,11 @@
 # backend/app/database.py
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker # type: ignore
+from sqlalchemy.orm import DeclarativeBase # type: ignore
 from .config import settings
 
 engine = create_async_engine(
-    settings.database_url,
+    settings.effective_database_url,  # Используем новое свойство
     echo=settings.debug,
     future=True
 )
