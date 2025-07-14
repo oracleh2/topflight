@@ -1,10 +1,10 @@
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import structlog
 
-from app.api import auth, domains, billing, tasks
-from app.config import settings
+from .api import auth, domains, billing, tasks, proxies
+from .config import settings
 
 # Настройка логирования
 structlog.configure(
@@ -17,7 +17,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     context_class=dict,
     logger_factory=structlog.stdlib.LoggerFactory(),
@@ -32,7 +32,7 @@ app = FastAPI(
     description="API для мониторинга позиций в поисковой выдаче Яндекса",
     version="1.0.0",
     docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None
+    redoc_url="/redoc" if settings.debug else None,
 )
 
 # CORS middleware
@@ -49,21 +49,22 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(domains.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
+app.include_router(proxies.router, prefix="/api/v1")
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Глобальный обработчик исключений"""
-    logger.error("Unhandled exception",
-                 url=str(request.url),
-                 method=request.method,
-                 error=str(exc))
+    logger.error(
+        "Unhandled exception",
+        url=str(request.url),
+        method=request.method,
+        error=str(exc),
+    )
 
     return JSONResponse(
         status_code=500,
-        content={
-            "detail": "Internal server error" if not settings.debug else str(exc)
-        }
+        content={"detail": "Internal server error" if not settings.debug else str(exc)},
     )
 
 
@@ -73,7 +74,7 @@ async def root():
     return {
         "message": "Yandex Position Parser API",
         "version": "1.0.0",
-        "status": "running"
+        "status": "running",
     }
 
 
@@ -91,5 +92,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=settings.debug,
-        log_level="info"
+        log_level="info",
     )

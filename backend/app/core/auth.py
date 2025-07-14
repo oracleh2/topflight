@@ -166,20 +166,22 @@ class PasswordValidator:
         """Валидирует пароль"""
         errors = []
 
-        if len(password) < cls.MIN_LENGTH:
-            errors.append(f"Пароль должен содержать минимум {cls.MIN_LENGTH} символов")
+        #TODO Не забыть включить обратно валидацию пароля
 
-        if len(password) > cls.MAX_LENGTH:
-            errors.append(f"Пароль должен содержать максимум {cls.MAX_LENGTH} символов")
-
-        if not any(c.isupper() for c in password):
-            errors.append("Пароль должен содержать хотя бы одну заглавную букву")
-
-        if not any(c.islower() for c in password):
-            errors.append("Пароль должен содержать хотя бы одну строчную букву")
-
-        if not any(c.isdigit() for c in password):
-            errors.append("Пароль должен содержать хотя бы одну цифру")
+        # if len(password) < cls.MIN_LENGTH:
+        #     errors.append(f"Пароль должен содержать минимум {cls.MIN_LENGTH} символов")
+        #
+        # if len(password) > cls.MAX_LENGTH:
+        #     errors.append(f"Пароль должен содержать максимум {cls.MAX_LENGTH} символов")
+        #
+        # if not any(c.isupper() for c in password):
+        #     errors.append("Пароль должен содержать хотя бы одну заглавную букву")
+        #
+        # if not any(c.islower() for c in password):
+        #     errors.append("Пароль должен содержать хотя бы одну строчную букву")
+        #
+        # if not any(c.isdigit() for c in password):
+        #     errors.append("Пароль должен содержать хотя бы одну цифру")
 
         return {
             "valid": len(errors) == 0,

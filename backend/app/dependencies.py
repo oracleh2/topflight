@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status, Security
+from fastapi import Depends, HTTPException, status, Security, Query, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -32,16 +32,22 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
-        credentials: Optional[HTTPAuthorizationCredentials] = Security(security, auto_error=False),
         session: AsyncSession = Depends(get_session)
 ) -> Optional[User]:
     """Получает текущего пользователя (опционально)"""
+    from fastapi import Request
 
-    if not credentials:
-        return None
-
+    # Пытаемся получить токен из заголовка Authorization
     try:
-        user = await AuthService.get_user_by_token(session, credentials.credentials)
+        # Получаем request через dependency injection
+        request = Request(scope={"type": "http"})
+        auth_header = request.headers.get("authorization")
+
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+
+        token = auth_header.replace("Bearer ", "")
+        user = await AuthService.get_user_by_token(session, token)
         return user
     except Exception:
         return None
@@ -62,32 +68,39 @@ async def get_user_by_api_key(
     return user
 
 
-class RequireAPIKey:
-    """Dependency для проверки API ключа из query параметра или заголовка"""
+async def require_api_key(
+        api_key: Optional[str] = Query(None, description="API ключ"),
+        x_api_key: Optional[str] = Header(None, description="API ключ в заголовке"),
+        session: AsyncSession = Depends(get_session)
+) -> User:
+    """Dependency для обязательной проверки API ключа"""
 
-    def __init__(self, auto_error: bool = True):
-        self.auto_error = auto_error
+    # Пробуем получить API ключ из разных источников
+    key = api_key or x_api_key
 
-    async def __call__(
-            self,
-            api_key: Optional[str] = None,  # Query parameter
-            x_api_key: Optional[str] = None,  # Header
-            session: AsyncSession = Depends(get_session)
-    ) -> Optional[User]:
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key required"
+        )
 
-        # Пробуем получить API ключ из разных источников
-        key = api_key or x_api_key
+    return await get_user_by_api_key(key, session)
 
-        if not key:
-            if self.auto_error:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="API key required"
-                )
-            return None
 
+async def optional_api_key(
+        api_key: Optional[str] = Query(None, description="API ключ"),
+        x_api_key: Optional[str] = Header(None, description="API ключ в заголовке"),
+        session: AsyncSession = Depends(get_session)
+) -> Optional[User]:
+    """Dependency для опциональной проверки API ключа"""
+
+    # Пробуем получить API ключ из разных источников
+    key = api_key or x_api_key
+
+    if not key:
+        return None
+
+    try:
         return await get_user_by_api_key(key, session)
-
-
-require_api_key = RequireAPIKey()
-optional_api_key = RequireAPIKey(auto_error=False)
+    except HTTPException:
+        return None

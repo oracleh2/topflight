@@ -257,7 +257,7 @@
           <div class="px-6 py-4">
             <h3 class="text-lg font-medium text-gray-900 mb-4">Документация</h3>
             <div class="space-y-3">
-
+              <a
                 href="#"
                 @click.prevent="showApiDocsModal = true"
                 class="flex items-center p-3 rounded-md border border-gray-200 hover:border-gray-300 transition-colors"
@@ -269,7 +269,7 @@
                 </div>
               </a>
 
-
+              <a
                 href="#"
                 @click.prevent="downloadPostmanCollection"
                 class="flex items-center p-3 rounded-md border border-gray-200 hover:border-gray-300 transition-colors"

@@ -1,237 +1,269 @@
-import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
-import { useAuthStore } from '@/stores/auth'
+import axios, {type AxiosInstance} from 'axios'
+import {useAuthStore} from '@/stores/auth'
 
 class ApiClient {
-  private client: AxiosInstance
+    private client: AxiosInstance
 
-  constructor() {
-    this.client = axios.create({
-      baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
+    constructor() {
+        this.client = axios.create({
+            baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
+            timeout: 30000,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        })
 
-    this.setupInterceptors()
-  }
+        this.setupInterceptors()
+    }
 
-  private setupInterceptors() {
-    // Request interceptor для добавления токена
-    this.client.interceptors.request.use(
-      (config) => {
-        const authStore = useAuthStore()
-        if (authStore.token) {
-          config.headers.Authorization = `Bearer ${authStore.token}`
-        }
-        return config
-      },
-      (error) => Promise.reject(error)
-    )
+    private setupInterceptors() {
+        // Request interceptor для добавления токена
+        this.client.interceptors.request.use(
+            (config) => {
+                const authStore = useAuthStore()
+                if (authStore.token) {
+                    config.headers.Authorization = `Bearer ${authStore.token}`
+                }
+                return config
+            },
+            (error) => Promise.reject(error)
+        )
 
-    // Response interceptor для обработки ошибок
-    this.client.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        if (error.response?.status === 401) {
-          const authStore = useAuthStore()
+        // Response interceptor для обработки ошибок
+        this.client.interceptors.response.use(
+            (response) => response,
+            async (error) => {
+                if (error.response?.status === 401) {
+                    const authStore = useAuthStore()
 
-          // Пытаемся обновить токен
-          if (authStore.refreshToken) {
-            try {
-              await authStore.refreshAccessToken()
-              // Повторяем запрос с новым токеном
-              const config = error.config
-              config.headers.Authorization = `Bearer ${authStore.token}`
-              return this.client.request(config)
-            } catch (refreshError) {
-              authStore.logout()
-              window.location.href = '/login'
+                    // Пытаемся обновить токен
+                    if (authStore.refreshToken) {
+                        try {
+                            await authStore.refreshAccessToken()
+                            // Повторяем запрос с новым токеном
+                            const config = error.config
+                            config.headers.Authorization = `Bearer ${authStore.token}`
+                            return this.client.request(config)
+                        } catch (refreshError) {
+                            authStore.logout()
+                            window.location.href = '/login'
+                        }
+                    } else {
+                        authStore.logout()
+                        window.location.href = '/login'
+                    }
+                }
+                return Promise.reject(error)
             }
-          } else {
-            authStore.logout()
-            window.location.href = '/login'
-          }
-        }
-        return Promise.reject(error)
-      }
-    )
-  }
+        )
+    }
 
-  // Auth endpoints
-  async register(email: string, password: string) {
-    return this.client.post('/auth/register', { email, password })
-  }
+    // Стандартные HTTP методы
+    async get(url: string, config?: any) {
+        return this.client.get(url, config)
+    }
 
-  async login(email: string, password: string) {
-    return this.client.post('/auth/login', { email, password })
-  }
+    async post(url: string, data?: any, config?: any) {
+        return this.client.post(url, data, config)
+    }
 
-  async refreshToken(refreshToken: string) {
-    return this.client.post('/auth/refresh', { refresh_token: refreshToken })
-  }
+    async put(url: string, data?: any, config?: any) {
+        return this.client.put(url, data, config)
+    }
 
-  async getProfile() {
-    return this.client.get('/auth/profile')
-  }
+    async patch(url: string, data?: any, config?: any) {
+        return this.client.patch(url, data, config)
+    }
 
-  async changePassword(currentPassword: string, newPassword: string) {
-    return this.client.post('/auth/change-password', {
-      current_password: currentPassword,
-      new_password: newPassword
-    })
-  }
+    async delete(url: string, config?: any) {
+        return this.client.delete(url, config)
+    }
 
-  async regenerateApiKey() {
-    return this.client.post('/auth/regenerate-api-key')
-  }
+    async head(url: string, config?: any) {
+        return this.client.head(url, config)
+    }
 
-  // Domains endpoints
-  async getDomains() {
-    return this.client.get('/domains/')
-  }
+    async options(url: string, config?: any) {
+        return this.client.options(url, config)
+    }
 
-  async addDomain(domain: string) {
-    return this.client.post('/domains/', { domain })
-  }
+    // Удобные методы с параметрами
+    async getWithParams(url: string, params: Record<string, any>, config?: any) {
+        return this.client.get(url, {...config, params})
+    }
 
-  async deleteDomain(domainId: string) {
-    return this.client.delete(`/domains/${domainId}`)
-  }
+    async postFormData(url: string, formData: FormData, config?: any) {
+        return this.client.post(url, formData, {
+            ...config,
+            headers: {
+                ...config?.headers,
+                'Content-Type': 'multipart/form-data'
+            }
+        })
+    }
 
-  async getRegions() {
-    return this.client.get('/domains/regions')
-  }
+    // Auth endpoints
+    async register(email: string, password: string) {
+        return this.client.post('/auth/register', {email, password})
+    }
 
-  async getDomainKeywords(domainId: string) {
-    return this.client.get(`/domains/${domainId}/keywords`)
-  }
+    async login(email: string, password: string) {
+        return this.client.post('/auth/login', {email, password})
+    }
 
-  async addKeyword(domainId: string, keyword: string, regionId: string, deviceType: string) {
-    return this.client.post(`/domains/${domainId}/keywords`, {
-      keyword,
-      region_id: regionId,
-      device_type: deviceType
-    })
-  }
+    async refreshToken(refreshToken: string) {
+        return this.client.post('/auth/refresh', {refresh_token: refreshToken})
+    }
 
-  async deleteKeyword(keywordId: string) {
-    return this.client.delete(`/domains/keywords/${keywordId}`)
-  }
+    async getProfile() {
+        return this.client.get('/auth/profile')
+    }
 
-  // Billing endpoints
-  async getBalance() {
-    return this.client.get('/billing/balance')
-  }
+    async changePassword(currentPassword: string, newPassword: string) {
+        return this.client.post('/auth/change-password', {
+            current_password: currentPassword,
+            new_password: newPassword
+        })
+    }
 
-  async topupBalance(amount: number) {
-    return this.client.post('/billing/topup', { amount })
-  }
+    async regenerateApiKey() {
+        return this.client.post('/auth/regenerate-api-key')
+    }
 
-  // Временно отключен до исправления backend
-  async getCurrentTariff() {
-    // return this.client.get('/billing/tariff')
-    return Promise.resolve({
-      data: {
-        id: '1',
-        name: 'Premium',
-        description: 'Премиум тариф',
-        cost_per_check: 0.80,
-        min_monthly_topup: 20000.00,
-        server_binding_allowed: true,
-        priority_level: 10
-      }
-    })
-  }
+    // Domains endpoints
+    async getDomains() {
+        return this.client.get('/domains/')
+    }
 
-  async getTransactionHistory(limit = 50, offset = 0) {
-    return this.client.get('/billing/transactions', {
-      params: { limit, offset }
-    })
-  }
+    async addDomain(domain: string) {
+        return this.client.post('/domains/', {domain})
+    }
 
-  async calculateCheckCost(checksCount = 1) {
-    return this.client.get('/billing/check-cost', {
-      params: { checks_count: checksCount }
-    })
-  }
+    async deleteDomain(domainId: string) {
+        return this.client.delete(`/domains/${domainId}`)
+    }
 
-  // Tasks endpoints
-  async createParseTask(keyword: string, deviceType: string, pages = 10, regionCode = '213') {
-    return this.client.post('/tasks/parse', {
-      keyword,
-      device_type: deviceType,
-      pages,
-      region_code: regionCode
-    })
-  }
+    async getRegions() {
+        return this.client.get('/domains/regions')
+    }
 
-  async createPositionCheckTask(keywordIds: string[], deviceType: string) {
-    return this.client.post('/tasks/check-positions', {
-      keyword_ids: keywordIds,
-      device_type: deviceType
-    })
-  }
+    async getDomainKeywords(domainId: string) {
+        return this.client.get(`/domains/${domainId}/keywords`)
+    }
 
-  async getTaskStatus(taskId: string) {
-    return this.client.get(`/tasks/status/${taskId}`)
-  }
+    async addKeyword(domainId: string, keyword: string, regionId: string, deviceType: string) {
+        return this.client.post(`/domains/${domainId}/keywords`, {
+            keyword,
+            region_id: regionId,
+            device_type: deviceType
+        })
+    }
 
-  async getUserTasks(limit = 50, offset = 0, status?: string) {
-    return this.client.get('/tasks/my-tasks', {
-      params: { limit, offset, ...(status && { status }) }
-    })
-  }
+    async deleteKeyword(keywordId: string) {
+        return this.client.delete(`/domains/keywords/${keywordId}`)
+    }
 
-  // Bulk keyword methods
-  async loadKeywordsFromTextFile(url: string) {
-    return this.client.post('/domains/keywords/load-from-text', { url })
-  }
+    // Billing endpoints
+    async getBalance() {
+        return this.client.get('/billing/balance')
+    }
 
-  async loadKeywordsFromExcel(url: string, sheet: number = 1, startRow: number = 1) {
-    return this.client.post('/domains/keywords/load-from-excel', {
-      url,
-      sheet,
-      start_row: startRow
-    })
-  }
+    async topupBalance(amount: number) {
+        return this.client.post('/billing/topup', {amount})
+    }
 
-  async loadKeywordsFromWord(url: string) {
-    return this.client.post('/domains/keywords/load-from-word', { url })
-  }
+    // Временно отключен до исправления backend
+    async getCurrentTariff() {
+        // return this.client.get('/billing/tariff')
+        return Promise.resolve({
+            data: {
+                id: '1',
+                name: 'Premium',
+                description: 'Премиум тариф',
+                cost_per_check: 0.80,
+                min_monthly_topup: 20000.00,
+                server_binding_allowed: true,
+                priority_level: 10
+            }
+        })
+    }
 
-  async addBulkKeywords(domainId: string, keywords: string[], regionId: string, deviceType: string) {
-    return this.client.post(`/domains/${domainId}/keywords/bulk`, {
-      keywords,
-      region_id: regionId,
-      device_type: deviceType
-    })
-  }
+    async getTransactionHistory(limit = 50, offset = 0) {
+        return this.client.get('/billing/transactions', {
+            params: {limit, offset}
+        })
+    }
 
-  // Bulk keyword methods
-  async loadKeywordsFromTextFile(url: string) {
-    return this.client.post('/domains/keywords/load-from-text', { url })
-  }
+    async calculateCheckCost(checksCount = 1) {
+        return this.client.get('/billing/check-cost', {
+            params: {checks_count: checksCount}
+        })
+    }
 
-  async loadKeywordsFromExcel(url: string, sheet: number = 1, startRow: number = 1) {
-    return this.client.post('/domains/keywords/load-from-excel', {
-      url,
-      sheet,
-      start_row: startRow
-    })
-  }
+    // Tasks endpoints
+    async createParseTask(keyword: string, deviceType: string, pages = 10, regionCode = '213') {
+        return this.client.post('/tasks/parse', {
+            keyword,
+            device_type: deviceType,
+            pages,
+            region_code: regionCode
+        })
+    }
 
-  async loadKeywordsFromWord(url: string) {
-    return this.client.post('/domains/keywords/load-from-word', { url })
-  }
+    async createPositionCheckTask(keywordIds: string[], deviceType: string) {
+        return this.client.post('/tasks/check-positions', {
+            keyword_ids: keywordIds,
+            device_type: deviceType
+        })
+    }
 
-  async addBulkKeywords(domainId: string, keywords: string[], regionId: string, deviceType: string) {
-    return this.client.post(`/domains/${domainId}/keywords/bulk`, {
-      keywords,
-      region_id: regionId,
-      device_type: deviceType
-    })
-  }
+    async getTaskStatus(taskId: string) {
+        return this.client.get(`/tasks/status/${taskId}`)
+    }
+
+    async getUserTasks(limit = 50, offset = 0, status?: string) {
+        return this.client.get('/tasks/my-tasks', {
+            params: {limit, offset, ...(status && {status})}
+        })
+    }
+
+    // Bulk keyword methods
+    async loadKeywordsFromTextFile(url: string) {
+        return this.client.post('/domains/keywords/load-from-text', {url})
+    }
+
+    async loadKeywordsFromExcel(url: string, sheet: number = 1, startRow: number = 1) {
+        return this.client.post('/domains/keywords/load-from-excel', {
+            url,
+            sheet,
+            start_row: startRow
+        })
+    }
+
+    async loadKeywordsFromWord(url: string) {
+        return this.client.post('/domains/keywords/load-from-word', {url})
+    }
+
+    async addBulkKeywords(domainId: string, keywords: string[], regionId: string, deviceType: string) {
+        return this.client.post(`/domains/${domainId}/keywords/bulk`, {
+            keywords,
+            region_id: regionId,
+            device_type: deviceType
+        })
+    }
+
+    // Proxy endpoints
+    async getDomainProxies(domainId: string) {
+        return this.client.get(`/proxies/domain/${domainId}`)
+    }
+
+    async getDomainProxySettings(domainId: string) {
+        return this.client.get(`/domains/${domainId}/proxy-settings`)
+    }
+
+    async updateDomainProxySettings(domainId: string, settings: any) {
+        return this.client.put(`/domains/${domainId}/proxy-settings`, {settings})
+    }
 }
 
 export const api = new ApiClient()

@@ -16,7 +16,7 @@
       <div class="bg-white overflow-hidden shadow rounded-lg">
         <div class="px-6 py-4 border-b border-gray-200">
           <h3 class="text-lg font-medium text-gray-900 flex items-center">
-            <CurrencyRubleIcon class="mr-2 h-5 w-5 text-gray-400" />
+            <CurrencyDollarIcon class="mr-2 h-5 w-5 text-gray-400" />
             Баланс
           </h3>
         </div>
@@ -243,7 +243,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  CurrencyRubleIcon,
+  CurrencyDollarIcon,
   StarIcon,
   CalculatorIcon,
   ClockIcon,

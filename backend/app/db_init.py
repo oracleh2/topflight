@@ -1,13 +1,19 @@
 # backend/app/db_init.py
 import asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
+import os
+import socket
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.database import async_session_maker
 from app.models import (
-    Region, TariffPlan, SystemConfig, ServerConfig,
-    BackupSchedule, CacheSettings
+    Region,
+    TariffPlan,
+    SystemConfig,
+    ServerConfig,
+    BackupSchedule,
+    CacheSettings,
 )
-from datetime import datetime
-import socket
 
 
 async def init_database():
@@ -17,7 +23,9 @@ async def init_database():
             # Создаем базовые регионы
             regions = [
                 Region(region_code="213", region_name="Москва", country_code="RU"),
-                Region(region_code="2", region_name="Санкт-Петербург", country_code="RU"),
+                Region(
+                    region_code="2", region_name="Санкт-Петербург", country_code="RU"
+                ),
                 Region(region_code="54", region_name="Екатеринбург", country_code="RU"),
                 Region(region_code="65", region_name="Новосибирск", country_code="RU"),
                 Region(region_code="35", region_name="Краснодар", country_code="RU"),
@@ -35,7 +43,7 @@ async def init_database():
                     cost_per_check=1.00,
                     min_monthly_topup=0.00,
                     server_binding_allowed=False,
-                    priority_level=0
+                    priority_level=0,
                 ),
                 TariffPlan(
                     name="Премиум",
@@ -43,8 +51,8 @@ async def init_database():
                     cost_per_check=0.80,
                     min_monthly_topup=20000.00,
                     server_binding_allowed=True,
-                    priority_level=10
-                )
+                    priority_level=10,
+                ),
             ]
 
             for tariff in tariffs:
@@ -52,14 +60,26 @@ async def init_database():
 
             # Системные настройки
             system_configs = [
-                SystemConfig(config_key="logs_retention_days", config_value="30",
-                             description="Количество дней хранения логов"),
-                SystemConfig(config_key="metrics_collection_interval", config_value="300",
-                             description="Интервал сбора метрик в секундах"),
-                SystemConfig(config_key="database_backup_interval", config_value="21600",
-                             description="Интервал бэкапа БД в секундах (6 часов)"),
-                SystemConfig(config_key="backup_retention_days", config_value="30",
-                             description="Количество дней хранения бэкапов"),
+                SystemConfig(
+                    config_key="logs_retention_days",
+                    config_value="30",
+                    description="Количество дней хранения логов",
+                ),
+                SystemConfig(
+                    config_key="metrics_collection_interval",
+                    config_value="300",
+                    description="Интервал сбора метрик в секундах",
+                ),
+                SystemConfig(
+                    config_key="database_backup_interval",
+                    config_value="21600",
+                    description="Интервал бэкапа БД в секундах (6 часов)",
+                ),
+                SystemConfig(
+                    config_key="backup_retention_days",
+                    config_value="30",
+                    description="Количество дней хранения бэкапов",
+                ),
             ]
 
             for config in system_configs:
@@ -80,7 +100,7 @@ async def init_database():
                 profile_health_check_interval=1800,
                 auto_scaling_enabled=True,
                 auto_worker_spawn=True,
-                max_workers_limit=16
+                max_workers_limit=16,
             )
             session.add(server_config)
 
@@ -91,15 +111,15 @@ async def init_database():
                     schedule_cron="0 */6 * * *",  # каждые 6 часов
                     retention_days=30,
                     storage_path="/backup/full",
-                    is_enabled=True
+                    is_enabled=True,
                 ),
                 BackupSchedule(
                     backup_type="incremental",
                     schedule_cron="0 * * * *",  # каждый час
                     retention_days=7,
                     storage_path="/backup/incremental",
-                    is_enabled=True
-                )
+                    is_enabled=True,
+                ),
             ]
 
             for schedule in backup_schedules:
@@ -107,12 +127,24 @@ async def init_database():
 
             # Настройки кэширования
             cache_settings = [
-                CacheSettings(cache_key="serp_results", cache_type="serp",
-                              ttl_seconds=3600, is_enabled=True),
-                CacheSettings(cache_key="user_stats", cache_type="stats",
-                              ttl_seconds=1800, is_enabled=True),
-                CacheSettings(cache_key="system_config", cache_type="config",
-                              ttl_seconds=600, is_enabled=True),
+                CacheSettings(
+                    cache_key="serp_results",
+                    cache_type="serp",
+                    ttl_seconds=3600,
+                    is_enabled=True,
+                ),
+                CacheSettings(
+                    cache_key="user_stats",
+                    cache_type="stats",
+                    ttl_seconds=1800,
+                    is_enabled=True,
+                ),
+                CacheSettings(
+                    cache_key="system_config",
+                    cache_type="config",
+                    ttl_seconds=600,
+                    is_enabled=True,
+                ),
             ]
 
             for setting in cache_settings:

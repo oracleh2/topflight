@@ -1,11 +1,24 @@
 # backend/app/models/profile.py
 
-from sqlalchemy import Column, String, Boolean, Integer, DateTime, Text, ForeignKey, JSON, Float, Enum
+import enum
+
+from sqlalchemy import (
+    Column,
+    String,
+    Boolean,
+    Integer,
+    DateTime,
+    Text,
+    ForeignKey,
+    JSON,
+    Float,
+    Enum,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+
 from .base import Base, TimestampMixin, UUIDMixin
-from datetime import datetime
-import enum
+
 
 class DeviceType(enum.Enum):
     DESKTOP = "desktop"
@@ -36,7 +49,9 @@ class Profile(Base, UUIDMixin, TimestampMixin):
     is_warmed_up = Column(Boolean, default=False)
     last_used = Column(DateTime)
     warmup_sites_visited = Column(Integer, default=0)
-    status = Column(String(50), default="new")  # new, warming, ready, blocked, corrupted
+    status = Column(
+        String(50), default="new"
+    )  # new, warming, ready, blocked, corrupted
 
     # Метрики использования
     total_usage_count = Column(Integer, default=0)
@@ -44,13 +59,27 @@ class Profile(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     lifecycle = relationship("ProfileLifecycle", back_populates="profile")
-    fingerprint_data = relationship("ProfileFingerprint", back_populates="profile", uselist=False)
+    fingerprint_data = relationship(
+        "ProfileFingerprint", back_populates="profile", uselist=False
+    )
+
+    # Текущая назначенная прокси для нагула
+    assigned_warmup_proxy_id = Column(
+        UUID(as_uuid=True), ForeignKey("project_proxies.id")
+    )
+
+    # Relationships
+    assigned_warmup_proxy = relationship(
+        "ProjectProxy", foreign_keys=[assigned_warmup_proxy_id]
+    )
 
 
 class ProfileFingerprint(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "profile_fingerprints"
 
-    profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False, unique=True)
+    profile_id = Column(
+        UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False, unique=True
+    )
 
     # Основные компоненты fingerprint
     user_agent = Column(Text, nullable=False)
@@ -85,7 +114,9 @@ class ProfileFingerprint(Base, UUIDMixin, TimestampMixin):
 
 
 # Обновляем основную модель Profile
-Profile.fingerprint_data = relationship("ProfileFingerprint", back_populates="profile", uselist=False)
+Profile.fingerprint_data = relationship(
+    "ProfileFingerprint", back_populates="profile", uselist=False
+)
 
 
 class ProfileLifecycle(Base, UUIDMixin, TimestampMixin):
@@ -94,7 +125,9 @@ class ProfileLifecycle(Base, UUIDMixin, TimestampMixin):
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
     domain_id = Column(UUID(as_uuid=True), ForeignKey("user_domains.id"))
     current_usage_count = Column(Integer, default=0)
-    cascade_stage = Column(Integer, default=0)  # 0=fresh, 1=used_once, 2=dogwalking, 3=ready_again
+    cascade_stage = Column(
+        Integer, default=0
+    )  # 0=fresh, 1=used_once, 2=dogwalking, 3=ready_again
     is_corrupted = Column(Boolean, default=False)
     corruption_reason = Column(Text)
     last_health_check = Column(DateTime)
