@@ -11,8 +11,15 @@ from sqlalchemy.orm import selectinload
 import structlog
 
 from app.models import (
-    Task, Profile, ServerConfig, WorkerNode, DeviceType,
-    UserKeyword, UserDomain, ParseResult, PositionHistory
+    Task,
+    Profile,
+    ServerConfig,
+    WorkerNode,
+    DeviceType,
+    UserKeyword,
+    UserDomain,
+    ParseResult,
+    PositionHistory,
 )
 from app.database import async_session_maker
 from .browser_manager import BrowserManager
@@ -46,7 +53,9 @@ class TaskManager:
         self.parser = YandexParser(db_session)
         self.running = False
         self.server_id = f"server-{socket.gethostname()}"
-        self.worker_id = f"worker-{socket.gethostname()}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.worker_id = (
+            f"worker-{socket.gethostname()}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
         self.current_tasks = {}  # Словарь выполняющихся задач
         self.max_concurrent_tasks = 5  # По умолчанию
 
@@ -71,10 +80,12 @@ class TaskManager:
             # Регистрируем worker node
             await self._register_worker_node(session)
 
-            logger.info("Task manager initialized",
-                        server_id=self.server_id,
-                        worker_id=self.worker_id,
-                        max_concurrent_tasks=self.max_concurrent_tasks)
+            logger.info(
+                "Task manager initialized",
+                server_id=self.server_id,
+                worker_id=self.worker_id,
+                max_concurrent_tasks=self.max_concurrent_tasks,
+            )
 
         except Exception as e:
             logger.error("Failed to initialize task manager", error=str(e))
@@ -92,7 +103,7 @@ class TaskManager:
             self._main_task_loop(),
             self._heartbeat_loop(),
             self._maintenance_loop(),
-            return_exceptions=True
+            return_exceptions=True,
         )
 
     async def stop(self):
@@ -101,8 +112,10 @@ class TaskManager:
 
         # Ждем завершения текущих задач
         if self.current_tasks:
-            logger.info("Waiting for current tasks to complete",
-                        active_tasks=len(self.current_tasks))
+            logger.info(
+                "Waiting for current tasks to complete",
+                active_tasks=len(self.current_tasks),
+            )
             await asyncio.gather(*self.current_tasks.values(), return_exceptions=True)
 
         logger.info("Task manager stopped")
@@ -118,12 +131,16 @@ class TaskManager:
                     if task:
                         # Запускаем задачу асинхронно
                         task_coroutine = self._execute_task(task)
-                        self.current_tasks[str(task.id)] = asyncio.create_task(task_coroutine)
+                        self.current_tasks[str(task.id)] = asyncio.create_task(
+                            task_coroutine
+                        )
 
-                        logger.info("Task started",
-                                    task_id=str(task.id),
-                                    task_type=task.task_type,
-                                    active_tasks=len(self.current_tasks))
+                        logger.info(
+                            "Task started",
+                            task_id=str(task.id),
+                            task_type=task.task_type,
+                            active_tasks=len(self.current_tasks),
+                        )
 
                 # Очищаем завершенные задачи
                 await self._cleanup_completed_tasks()
@@ -193,9 +210,9 @@ class TaskManager:
         session = await self.get_session()
 
         try:
-            logger.info("Executing task",
-                        task_id=str(task.id),
-                        task_type=task.task_type)
+            logger.info(
+                "Executing task", task_id=str(task.id), task_type=task.task_type
+            )
 
             # Выполняем задачу в зависимости от типа
             if task.task_type == TaskType.WARMUP_PROFILE.value:
@@ -225,9 +242,7 @@ class TaskManager:
             task.error_message = str(e)
             await session.commit()
 
-            logger.error("Task failed",
-                         task_id=str(task.id),
-                         error=str(e))
+            logger.error("Task failed", task_id=str(task.id), error=str(e))
 
             # Планируем повторную попытку для некоторых типов задач
             await self._schedule_retry_if_needed(task, session)
@@ -263,7 +278,7 @@ class TaskManager:
             "profile_id": str(profile.id),
             "device_type": device_type.value,
             "success": success,
-            "warmup_sites_visited": profile.warmup_sites_visited
+            "warmup_sites_visited": profile.warmup_sites_visited,
         }
 
         if not success:
@@ -292,10 +307,7 @@ class TaskManager:
 
         # Парсим SERP
         results = await self.parser.parse_serp(
-            keyword=keyword,
-            profile=profile,
-            pages=pages,
-            region_code=region_code
+            keyword=keyword, profile=profile, pages=pages, region_code=region_code
         )
 
         # Сохраняем результаты
@@ -307,7 +319,7 @@ class TaskManager:
             "keyword": keyword,
             "device_type": device_type.value,
             "results_count": len(results),
-            "profile_id": str(profile.id)
+            "profile_id": str(profile.id),
         }
 
         # Планируем каскад профиля если нужно
@@ -344,7 +356,7 @@ class TaskManager:
                     keyword=keyword_obj.keyword,
                     target_domain=keyword_obj.domain.domain,
                     profile=profile,
-                    region_code=keyword_obj.region.region_code
+                    region_code=keyword_obj.region.region_code,
                 )
 
                 # Сохраняем результат в историю позиций
@@ -353,36 +365,43 @@ class TaskManager:
                     domain_id=keyword_obj.domain_id,
                     keyword_id=keyword_obj.id,
                     position=position,
-                    check_date=datetime.utcnow()
+                    check_date=datetime.utcnow(),
                 )
                 session.add(position_record)
 
-                results.append({
-                    "keyword_id": str(keyword_obj.id),
-                    "keyword": keyword_obj.keyword,
-                    "domain": keyword_obj.domain.domain,
-                    "position": position
-                })
+                results.append(
+                    {
+                        "keyword_id": str(keyword_obj.id),
+                        "keyword": keyword_obj.keyword,
+                        "domain": keyword_obj.domain.domain,
+                        "position": position,
+                    }
+                )
 
                 # Пауза между проверками
                 await asyncio.sleep(random.uniform(5, 15))
 
             except Exception as e:
-                logger.error("Failed to check keyword position",
-                             keyword_id=str(keyword_obj.id), error=str(e))
-                results.append({
-                    "keyword_id": str(keyword_obj.id),
-                    "keyword": keyword_obj.keyword,
-                    "domain": keyword_obj.domain.domain,
-                    "position": None,
-                    "error": str(e)
-                })
+                logger.error(
+                    "Failed to check keyword position",
+                    keyword_id=str(keyword_obj.id),
+                    error=str(e),
+                )
+                results.append(
+                    {
+                        "keyword_id": str(keyword_obj.id),
+                        "keyword": keyword_obj.keyword,
+                        "domain": keyword_obj.domain.domain,
+                        "position": None,
+                        "error": str(e),
+                    }
+                )
 
         task.result = {
             "device_type": device_type.value,
             "checked_keywords": len(keywords),
             "results": results,
-            "profile_id": str(profile.id)
+            "profile_id": str(profile.id),
         }
 
         # Планируем каскад профиля
@@ -395,10 +414,7 @@ class TaskManager:
 
         # Получаем профили для проверки
         query = select(Profile).where(
-            and_(
-                Profile.is_warmed_up == True,
-                Profile.status == "ready"
-            )
+            and_(Profile.is_warmed_up == True, Profile.status == "ready")
         )
 
         if device_type:
@@ -407,11 +423,10 @@ class TaskManager:
         # Фильтруем профили которые давно не проверялись
         check_threshold = datetime.utcnow() - timedelta(hours=1)
         query = query.where(
-            or_(
-                Profile.last_used < check_threshold,
-                Profile.last_used.is_(None)
-            )
-        ).limit(10)  # Проверяем максимум 10 профилей за раз
+            or_(Profile.last_used < check_threshold, Profile.last_used.is_(None))
+        ).limit(
+            10
+        )  # Проверяем максимум 10 профилей за раз
 
         result = await session.execute(query)
         profiles = result.scalars().all()
@@ -432,13 +447,14 @@ class TaskManager:
                 await asyncio.sleep(random.uniform(3, 8))
 
             except Exception as e:
-                logger.error("Health check failed",
-                             profile_id=str(profile.id), error=str(e))
+                logger.error(
+                    "Health check failed", profile_id=str(profile.id), error=str(e)
+                )
 
         task.result = {
             "checked_profiles": checked_profiles,
             "corrupted_profiles": corrupted_profiles,
-            "device_type": device_type
+            "device_type": device_type,
         }
 
     async def _execute_maintain_profiles_task(self, task: Task, session: AsyncSession):
@@ -451,7 +467,7 @@ class TaskManager:
                 and_(
                     Profile.device_type == DeviceType.DESKTOP,
                     Profile.is_warmed_up == True,
-                    Profile.status == "ready"
+                    Profile.status == "ready",
                 )
             )
         )
@@ -461,7 +477,7 @@ class TaskManager:
                 and_(
                     Profile.device_type == DeviceType.MOBILE,
                     Profile.is_warmed_up == True,
-                    Profile.status == "ready"
+                    Profile.status == "ready",
                 )
             )
         )
@@ -469,11 +485,12 @@ class TaskManager:
         task.result = {
             "desktop_profiles": desktop_count,
             "mobile_profiles": mobile_count,
-            "total_profiles": desktop_count + mobile_count
+            "total_profiles": desktop_count + mobile_count,
         }
 
-    async def _handle_profile_cascade(self, profile: Profile, session: AsyncSession,
-                                      parameters: Dict[str, Any]):
+    async def _handle_profile_cascade(
+        self, profile: Profile, session: AsyncSession, parameters: Dict[str, Any]
+    ):
         """Обрабатывает каскад профиля после использования"""
         try:
             cascade_enabled = parameters.get("cascade_enabled", True)
@@ -489,15 +506,18 @@ class TaskManager:
                 parameters={
                     "profile_id": str(profile.id),
                     "device_type": profile.device_type.value,
-                    "cascade_mode": True
-                }
+                    "cascade_mode": True,
+                },
             )
 
             session.add(cascade_task)
 
         except Exception as e:
-            logger.error("Failed to handle profile cascade",
-                         profile_id=str(profile.id), error=str(e))
+            logger.error(
+                "Failed to handle profile cascade",
+                profile_id=str(profile.id),
+                error=str(e),
+            )
 
     async def _schedule_retry_if_needed(self, task: Task, session: AsyncSession):
         """Планирует повторную попытку для задачи если нужно"""
@@ -508,7 +528,7 @@ class TaskManager:
         if retry_count < max_retries and task.task_type in [
             TaskType.PARSE_SERP.value,
             TaskType.CHECK_POSITIONS.value,
-            TaskType.WARMUP_PROFILE.value
+            TaskType.WARMUP_PROFILE.value,
         ]:
             # Создаем новую задачу с увеличенным счетчиком
             retry_parameters = task.parameters.copy() if task.parameters else {}
@@ -518,14 +538,16 @@ class TaskManager:
                 task_type=task.task_type,
                 status=TaskStatus.PENDING.value,
                 priority=max(0, task.priority - 1),  # Снижаем приоритет
-                parameters=retry_parameters
+                parameters=retry_parameters,
             )
 
             session.add(retry_task)
 
-            logger.info("Retry task scheduled",
-                        original_task_id=str(task.id),
-                        retry_count=retry_count + 1)
+            logger.info(
+                "Retry task scheduled",
+                original_task_id=str(task.id),
+                retry_count=retry_count + 1,
+            )
 
     async def _cleanup_completed_tasks(self):
         """Очищает завершенные задачи из памяти"""
@@ -561,8 +583,8 @@ class TaskManager:
                     max_workers=self.max_concurrent_tasks,
                     capabilities={
                         "browsers": ["chrome", "firefox"],
-                        "device_types": ["desktop", "mobile"]
-                    }
+                        "device_types": ["desktop", "mobile"],
+                    },
                 )
                 session.add(worker_node)
 
@@ -583,10 +605,7 @@ class TaskManager:
             await session.execute(
                 update(WorkerNode)
                 .where(WorkerNode.node_id == self.worker_id)
-                .values(
-                    last_heartbeat=datetime.utcnow(),
-                    status="online"
-                )
+                .values(last_heartbeat=datetime.utcnow(), status="online")
             )
             await session.commit()
 
@@ -619,7 +638,7 @@ class TaskManager:
                     task_type=TaskType.MAINTAIN_PROFILES.value,
                     status=TaskStatus.PENDING.value,
                     priority=5,
-                    parameters={}
+                    parameters={},
                 )
                 session.add(maintain_task)
                 await session.commit()
@@ -642,7 +661,8 @@ class TaskManager:
                     .where(
                         and_(
                             Task.task_type == TaskType.HEALTH_CHECK.value,
-                            Task.parameters.op('->>')('device_type') == device_type.value
+                            Task.parameters.op("->>")("device_type")
+                            == device_type.value,
                         )
                     )
                     .order_by(Task.created_at.desc())
@@ -661,7 +681,7 @@ class TaskManager:
                         task_type=TaskType.HEALTH_CHECK.value,
                         status=TaskStatus.PENDING.value,
                         priority=3,
-                        parameters={"device_type": device_type.value}
+                        parameters={"device_type": device_type.value},
                     )
                     session.add(health_check_task)
 
@@ -672,9 +692,16 @@ class TaskManager:
 
     # Методы для создания задач извне
 
-    async def create_parse_task(self, keyword: str, device_type: DeviceType = DeviceType.DESKTOP,
-                                pages: int = 10, region_code: str = "213",
-                                priority: int = 5, **kwargs) -> Task:
+    async def create_parse_task(
+        self,
+        keyword: str,
+        device_type: DeviceType = DeviceType.DESKTOP,
+        pages: int = 10,
+        region_code: str = "213",
+        priority: int = 5,
+        user_id: Optional[str] = None,
+        **kwargs,
+    ) -> Task:
         """Создает задачу парсинга SERP"""
         session = await self.get_session()
 
@@ -683,60 +710,75 @@ class TaskManager:
             "device_type": device_type.value,
             "pages": pages,
             "region_code": region_code,
-            **kwargs
+            **kwargs,
         }
 
         task = Task(
             task_type=TaskType.PARSE_SERP.value,
             status=TaskStatus.PENDING.value,
             priority=priority,
-            parameters=parameters
+            user_id=user_id,  # УСТАНАВЛИВАЕМ USER_ID
+            parameters=parameters,
         )
 
         session.add(task)
         await session.commit()
         await session.refresh(task)
 
-        logger.info("Parse task created", task_id=str(task.id), keyword=keyword)
+        logger.info(
+            "Parse task created", task_id=str(task.id), keyword=keyword, user_id=user_id
+        )
         return task
 
-    async def create_position_check_task(self, keyword_ids: List[str],
-                                         device_type: DeviceType = DeviceType.DESKTOP,
-                                         priority: int = 10, **kwargs) -> Task:
+    async def create_position_check_task(
+        self,
+        keyword_ids: List[str],
+        device_type: DeviceType = DeviceType.DESKTOP,
+        priority: int = 10,
+        user_id: Optional[str] = None,
+        **kwargs,
+    ) -> Task:
         """Создает задачу проверки позиций"""
         session = await self.get_session()
 
         parameters = {
             "keyword_ids": keyword_ids,
             "device_type": device_type.value,
-            **kwargs
+            **kwargs,
         }
 
         task = Task(
             task_type=TaskType.CHECK_POSITIONS.value,
             status=TaskStatus.PENDING.value,
             priority=priority,
-            parameters=parameters
+            user_id=user_id,  # УСТАНАВЛИВАЕМ USER_ID
+            parameters=parameters,
         )
 
         session.add(task)
         await session.commit()
         await session.refresh(task)
 
-        logger.info("Position check task created",
-                    task_id=str(task.id),
-                    keywords_count=len(keyword_ids))
+        logger.info(
+            "Position check task created",
+            task_id=str(task.id),
+            keywords_count=len(keyword_ids),
+            user_id=user_id,
+        )
         return task
 
-    async def create_warmup_task(self, device_type: DeviceType = DeviceType.DESKTOP,
-                                 profile_id: Optional[str] = None,
-                                 priority: int = 2) -> Task:
+    async def create_warmup_task(
+        self,
+        device_type: DeviceType = DeviceType.DESKTOP,
+        profile_id: Optional[str] = None,
+        priority: int = 2,
+        user_id: Optional[str] = None,
+        **kwargs,
+    ) -> Task:
         """Создает задачу прогрева профиля"""
         session = await self.get_session()
 
-        parameters = {
-            "device_type": device_type.value
-        }
+        parameters = {"device_type": device_type.value, **kwargs}
 
         if profile_id:
             parameters["profile_id"] = profile_id
@@ -745,12 +787,13 @@ class TaskManager:
             task_type=TaskType.WARMUP_PROFILE.value,
             status=TaskStatus.PENDING.value,
             priority=priority,
-            parameters=parameters
+            user_id=user_id,  # УСТАНАВЛИВАЕМ USER_ID
+            parameters=parameters,
         )
 
         session.add(task)
         await session.commit()
         await session.refresh(task)
 
-        logger.info("Warmup task created", task_id=str(task.id))
+        logger.info("Warmup task created", task_id=str(task.id), user_id=user_id)
         return task

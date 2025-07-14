@@ -93,14 +93,23 @@
                         : 'Создайте первую задачу для начала работы'
                 }}
             </p>
-            <div v-if="!hasFilters" class="mt-6">
+            <div v-if="!hasFilters" class="mt-6 space-x-3">
                 <button
                     type="button"
                     class="btn-primary"
                     @click="showQuickParseModal=true"
                 >
                     <PlusIcon class="-ml-1 mr-2 h-5 w-5" aria-hidden="true"/>
-                    Создать задачу
+                    Быстрый парсинг
+                </button>
+
+                <button
+                    type="button"
+                    class="btn-secondary"
+                    @click="showWarmupModal=true"
+                >
+                    <CpuChipIcon class="-ml-1 mr-2 h-5 w-5" aria-hidden="true"/>
+                    Нагул профиля
                 </button>
             </div>
         </div>
@@ -290,6 +299,13 @@
             :task="selectedTask"
             @close="showResultsModal=false"
         />
+
+        <!-- Warmup Task Modal -->
+        <WarmupTaskModal
+            :visible="showWarmupModal"
+            @close="handleWarmupModalClose"
+            @created="handleTaskCreated"
+        />
     </div>
 </template>
 
@@ -310,9 +326,12 @@ import Spinner from '@/components/ui/Spinner.vue'
 import Alert from '@/components/ui/Alert.vue'
 import QuickParseModal from '@/components/modals/QuickParseModal.vue'
 import TaskResultsModal from '@/components/modals/TaskResultsModal.vue'
+import {CpuChipIcon} from '@heroicons/vue/24/outline'
+import WarmupTaskModal from '@/components/modals/WarmupTaskModal.vue'
 
 const tasksStore = useTasksStore()
 
+const showWarmupModal = ref(false)
 const showQuickParseModal = ref(false)
 const showResultsModal = ref(false)
 const selectedTask = ref<Task | null>(null)
@@ -356,12 +375,16 @@ const formatDateTime = (dateString: string) => {
 }
 
 const getTaskIcon = (taskType: string) => {
-    const iconMap: Record<string, any> = {
-        parse_serp: MagnifyingGlassIcon,
-        check_positions: CheckCircleIcon,
-        warmup_profile: CogIcon
+    switch (taskType) {
+        case 'parse_serp':
+            return SearchIcon
+        case 'check_positions':
+            return CheckCircleIcon
+        case 'warmup_profile':
+            return CpuChipIcon
+        default:
+            return DocumentTextIcon
     }
-    return iconMap[taskType] || ClipboardDocumentListIcon
 }
 
 const getTaskStatusText = (status: string) => {
@@ -415,9 +438,9 @@ const getTaskTypeText = (taskType: string) => {
 
 const getTaskTitle = (task: Task) => {
     if (task.task_type === 'parse_serp') {
-        return `Парсинг: ${task.parameters?.keyword || 'неизвестный запрос'}`
+        return `Парсинг: ${task.parameters.keyword || 'Неизвестно'}`
     } else if (task.task_type === 'check_positions') {
-        return `Проверка позиций: ${task.parameters?.keyword_ids?.length || 0} ключевых слов`
+        return `Проверка позиций: ${task.parameters.keyword_ids?.length || 0} ключевых слов`
     } else if (task.task_type === 'warmup_profile') {
         return 'Прогрев профиля'
     }
@@ -474,8 +497,25 @@ const createSimilarTask = (task: Task) => {
 }
 
 const handleTaskCreated = () => {
+    console.log('Task created, closing modals...')
     showQuickParseModal.value = false
+    showWarmupModal.value = false
     refreshTasks()
+}
+
+const handleWarmupModalClose = () => {
+    console.log('Warmup modal closing...') // для отладки
+    showWarmupModal.value = false
+}
+const getTaskName = (task: Task) => {
+    if (task.task_type === 'parse_serp') {
+        return `Парсинг: ${task.parameters.keyword || 'Неизвестно'}`
+    } else if (task.task_type === 'check_positions') {
+        return `Проверка позиций: ${task.parameters.keyword_ids?.length || 0} ключевых слов`
+    } else if (task.task_type === 'warmup_profile') {
+        return 'Прогрев профиля'
+    }
+    return task.task_type
 }
 
 onMounted(() => {

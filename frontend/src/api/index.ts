@@ -264,6 +264,14 @@ class ApiClient {
     async updateDomainProxySettings(domainId: string, settings: any) {
         return this.client.put(`/domains/${domainId}/proxy-settings`, {settings})
     }
+
+    async createWarmupTask(deviceType: string = 'desktop', profileId?: string, priority: number = 2) {
+        return this.client.post('/tasks/warmup', {
+            device_type: deviceType,
+            ...(profileId && {profile_id: profileId}),
+            priority
+        })
+    }
 }
 
 export const api = new ApiClient()

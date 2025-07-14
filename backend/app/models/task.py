@@ -12,6 +12,9 @@ class Task(Base, UUIDMixin, TimestampMixin):
     status = Column(String(50), default="pending")  # pending, running, completed, failed
     priority = Column(Integer, default=0)
 
+    # ДОБАВЛЯЕМ ПОЛЕ USER_ID
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
     # Параметры задачи в JSON
     parameters = Column(JSON)  # {"keyword": "...", "pages": 10, "profile_id": "..."}
 
