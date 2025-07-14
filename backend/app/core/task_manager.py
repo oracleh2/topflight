@@ -26,6 +26,7 @@ from app.models import (
 from app.database import async_session_maker
 from .browser_manager import BrowserManager
 from .strategy_executor import StrategyExecutor
+from .vnc_manager import vnc_manager
 
 logger = structlog.get_logger(__name__)
 
@@ -1096,3 +1097,339 @@ class TaskManager:
 
         logger.info("Warmup task created", task_id=str(task.id), user_id=user_id)
         return task
+
+    async def create_debug_task(
+        self,
+        task_type: TaskType,
+        device_type: DeviceType = DeviceType.DESKTOP,
+        debug_enabled: bool = True,
+        **kwargs,
+    ) -> Task:
+        """Создает задачу с включенным режимом дебага"""
+        session = await self.get_session()
+
+        parameters = {
+            "device_type": device_type.value,
+            "debug_enabled": debug_enabled,
+            "debug_created_at": datetime.now(timezone.utc).isoformat(),
+            **kwargs,
+        }
+
+        task = Task(
+            task_type=task_type.value,
+            status=TaskStatus.PENDING.value,
+            priority=kwargs.get("priority", 10),
+            parameters=parameters,
+        )
+
+        session.add(task)
+        await session.commit()
+        await session.refresh(task)
+
+        logger.info(
+            "Debug task created",
+            task_id=str(task.id),
+            task_type=task_type.value,
+            debug_enabled=debug_enabled,
+        )
+
+        return task
+
+    async def get_debuggable_tasks(
+        self, limit: int = 50, offset: int = 0, status_filter: Optional[str] = None
+    ) -> List[Task]:
+        """Получает задачи, которые могут быть отлажены"""
+        session = await self.get_session()
+
+        query = (
+            select(Task)
+            .where(Task.status.in_(["pending", "running", "failed"]))
+            .order_by(Task.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+
+        if status_filter:
+            query = query.where(Task.status == status_filter)
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    async def get_debug_tasks(self) -> List[Task]:
+        """Получает все задачи с включенным debug режимом"""
+        session = await self.get_session()
+
+        query = (
+            select(Task)
+            .where(Task.parameters.op("->>")("debug_enabled") == "true")
+            .order_by(Task.created_at.desc())
+        )
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    async def enable_task_debug(
+        self,
+        task_id: str,
+        device_type: DeviceType = DeviceType.DESKTOP,
+        admin_user_id: Optional[str] = None,
+    ) -> bool:
+        """Включает режим дебага для существующей задачи"""
+        session = await self.get_session()
+
+        try:
+            result = await session.execute(select(Task).where(Task.id == task_id))
+            task = result.scalar_one_or_none()
+
+            if not task:
+                logger.error("Task not found for debug enable", task_id=task_id)
+                return False
+
+            if not task.can_be_debugged():
+                logger.error(
+                    "Task cannot be debugged", task_id=task_id, status=task.status
+                )
+                return False
+
+            # Обновляем параметры
+            if not task.parameters:
+                task.parameters = {}
+
+            task.parameters.update(
+                {
+                    "debug_enabled": True,
+                    "debug_device_type": device_type.value,
+                    "debug_started_by": admin_user_id,
+                    "debug_started_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
+            await session.commit()
+
+            logger.info(
+                "Debug enabled for task",
+                task_id=task_id,
+                device_type=device_type.value,
+                admin_user_id=admin_user_id,
+            )
+
+            return True
+
+        except Exception as e:
+            await session.rollback()
+            logger.error(
+                "Failed to enable debug for task", task_id=task_id, error=str(e)
+            )
+            return False
+
+    async def disable_task_debug(
+        self, task_id: str, admin_user_id: Optional[str] = None
+    ) -> bool:
+        """Отключает режим дебага для задачи"""
+        session = await self.get_session()
+
+        try:
+            result = await session.execute(select(Task).where(Task.id == task_id))
+            task = result.scalar_one_or_none()
+
+            if not task:
+                logger.error("Task not found for debug disable", task_id=task_id)
+                return False
+
+            # Обновляем параметры
+            if task.parameters:
+                task.parameters.update(
+                    {
+                        "debug_enabled": False,
+                        "debug_stopped_by": admin_user_id,
+                        "debug_stopped_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+
+            await session.commit()
+
+            logger.info(
+                "Debug disabled for task", task_id=task_id, admin_user_id=admin_user_id
+            )
+
+            return True
+
+        except Exception as e:
+            await session.rollback()
+            logger.error(
+                "Failed to disable debug for task", task_id=task_id, error=str(e)
+            )
+            return False
+
+    async def execute_task_with_debug(self, task: Task, session: AsyncSession):
+        """Выполняет задачу в debug режиме"""
+        try:
+            if not task.debug_enabled:
+                # Выполняем как обычную задачу
+                return await self._execute_task_normal(task, session)
+
+            # Debug режим
+            device_type = task.get_debug_device_type()
+
+            logger.info(
+                "Executing task in debug mode",
+                task_id=str(task.id),
+                device_type=device_type.value,
+            )
+
+            # Запускаем браузер с VNC
+            debug_info = await self.browser_manager.launch_debug_browser(
+                str(task.id), device_type
+            )
+
+            # Выполняем задачу (в зависимости от типа)
+            if task.task_type == TaskType.PARSE_SERP.value:
+                await self._execute_parse_serp_task_debug(task, session, debug_info)
+            elif task.task_type == TaskType.CHECK_POSITIONS.value:
+                await self._execute_check_positions_task_debug(
+                    task, session, debug_info
+                )
+            elif task.task_type == TaskType.WARMUP_PROFILE.value:
+                await self._execute_warmup_task_debug(task, session, debug_info)
+            else:
+                raise Exception(
+                    f"Debug mode not supported for task type: {task.task_type}"
+                )
+
+            logger.info("Debug task completed successfully", task_id=str(task.id))
+
+        except Exception as e:
+            logger.error(
+                "Debug task execution failed", task_id=str(task.id), error=str(e)
+            )
+            # Очищаем VNC сессию при ошибке
+            await vnc_manager.stop_debug_session(str(task.id))
+            raise
+
+    # Пример debug версии выполнения задачи парсинга
+    async def _execute_parse_serp_task_debug(
+        self, task: Task, session: AsyncSession, debug_info: Dict[str, Any]
+    ):
+        """Выполняет парсинг SERP в debug режиме"""
+        parameters = task.parameters
+        keyword = parameters["keyword"]
+        device_type = DeviceType(parameters.get("device_type", "desktop"))
+        pages = parameters.get("pages", 10)
+        region_code = parameters.get("region_code", "213")
+
+        # В debug режиме используем специальный профиль или создаем новый
+        profile = await self.browser_manager.get_ready_profile(device_type)
+        if not profile:
+            profile = await self.browser_manager.create_profile(device_type=device_type)
+
+        # Добавляем debug информацию в результат
+        task.result = {
+            "keyword": keyword,
+            "device_type": device_type.value,
+            "debug_mode": True,
+            "vnc_info": debug_info,
+            "debug_started_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Здесь можно добавить специальную логику для debug режима:
+        # - Больше логирования
+        # - Замедленное выполнение
+        # - Дополнительные скриншоты
+        # - Подробная трассировка действий
+
+        logger.info(
+            "Debug SERP parsing started",
+            task_id=str(task.id),
+            keyword=keyword,
+            vnc_port=debug_info.get("vnc_port"),
+        )
+
+    async def _execute_task_normal(self, task: Task, session: AsyncSession):
+        """Выполняет задачу в обычном режиме (без debug)"""
+        # Просто вызываем соответствующий метод выполнения
+        if task.task_type == TaskType.PARSE_SERP.value:
+            await self._execute_parse_serp_task(task, session)
+        elif task.task_type == TaskType.CHECK_POSITIONS.value:
+            await self._execute_check_positions_task(task, session)
+        elif task.task_type == TaskType.WARMUP_PROFILE.value:
+            await self._execute_warmup_profile_task(task, session)
+        else:
+            raise Exception(
+                f"Normal mode not supported for task type: {task.task_type}"
+            )
+
+    async def _execute_check_positions_task_debug(
+        self, task: Task, session: AsyncSession, debug_info: Dict[str, Any]
+    ):
+        """Выполняет проверку позиций в debug режиме"""
+        parameters = task.parameters
+        keyword_ids = parameters["keyword_ids"]
+        device_type = DeviceType(parameters.get("device_type", "desktop"))
+
+        # Получаем ключевые слова
+        result = await session.execute(
+            select(UserKeyword)
+            .options(selectinload(UserKeyword.domain), selectinload(UserKeyword.region))
+            .where(UserKeyword.id.in_(keyword_ids))
+        )
+        keywords = result.scalars().all()
+
+        if not keywords:
+            raise Exception("No keywords found")
+
+        # В debug режиме используем специальный профиль
+        profile = await self.browser_manager.get_ready_profile(device_type)
+        if not profile:
+            profile = await self.browser_manager.create_profile(device_type=device_type)
+
+        # Добавляем debug информацию в результат
+        task.result = {
+            "keywords_count": len(keyword_ids),
+            "device_type": device_type.value,
+            "debug_mode": True,
+            "vnc_info": debug_info,
+            "debug_started_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        logger.info(
+            "Debug position check started",
+            task_id=str(task.id),
+            keywords_count=len(keywords),
+            vnc_port=debug_info.get("vnc_port"),
+        )
+
+    async def _execute_warmup_task_debug(
+        self, task: Task, session: AsyncSession, debug_info: Dict[str, Any]
+    ):
+        """Выполняет прогрев профиля в debug режиме"""
+        parameters = task.parameters or {}
+        profile_id = parameters.get("profile_id")
+        device_type = DeviceType(parameters.get("device_type", "desktop"))
+
+        if profile_id:
+            # Получаем существующий профиль
+            result = await session.execute(
+                select(Profile).where(Profile.id == profile_id)
+            )
+            profile = result.scalar_one_or_none()
+            if not profile:
+                raise ValueError(f"Profile not found: {profile_id}")
+        else:
+            # Создаем новый профиль
+            profile = await self.browser_manager.create_profile(device_type=device_type)
+
+        # Добавляем debug информацию в результат
+        task.result = {
+            "profile_id": str(profile.id),
+            "device_type": device_type.value,
+            "debug_mode": True,
+            "vnc_info": debug_info,
+            "debug_started_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        logger.info(
+            "Debug warmup started",
+            task_id=str(task.id),
+            profile_id=str(profile.id),
+            vnc_port=debug_info.get("vnc_port"),
+        )

@@ -60,6 +60,12 @@ const router = createRouter({
                     path: '/strategies',
                     name: 'Strategies',
                     component: () => import('@/views/strategies/StrategiesManager.vue')
+                },
+                {
+                    path: "/admin/debug",
+                    name: "TaskDebug",
+                    component: () => import("@/components/admin/TaskDebugPanel.vue"),
+                    meta: {requiresAuth: true, requiresAdmin: true}
                 }
             ]
         }

@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     max_ram_percent: int = 70
     spawn_queue_threshold: int = 50
 
+    # VNC Debug Settings
+    vnc_enabled: bool = True
+    vnc_max_sessions: int = 10
+    vnc_base_display: int = 100
+    vnc_session_timeout: int = 7200  # 2 часа
+    vnc_cleanup_interval: int = 900  # 15 минут
+
+    # Debug Browser Settings
+    debug_browser_slow_mo: int = 500
+    debug_browser_devtools: bool = True
+    debug_browser_timeout: int = 30000
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:
