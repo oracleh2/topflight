@@ -45,6 +45,15 @@ from .user import (
     UserServerPreferences,
 )
 
+from .strategies import (
+    StrategyTemplate,
+    UserStrategy,
+    StrategyDataSource,
+    ProjectStrategy,
+    StrategyExecutionLog,
+)
+
+# Экспортируем все модели
 __all__ = [
     "Base",
     # User models
@@ -89,4 +98,10 @@ __all__ = [
     "BackupSchedule",
     "BackupHistory",
     "CacheSettings",
+    # Strategies models
+    "StrategyTemplate",
+    "UserStrategy",
+    "StrategyDataSource",
+    "ProjectStrategy",
+    "StrategyExecutionLog",
 ]

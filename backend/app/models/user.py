@@ -1,4 +1,14 @@
-from sqlalchemy import Column, String, Boolean, Integer, DateTime, Numeric, Text, ForeignKey, JSON
+from sqlalchemy import (
+    Column,
+    String,
+    Boolean,
+    Integer,
+    DateTime,
+    Numeric,
+    Text,
+    ForeignKey,
+    JSON,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .base import Base, TimestampMixin, UUIDMixin
@@ -18,12 +28,12 @@ class User(Base, UUIDMixin, TimestampMixin):
     balance = Column(Numeric(10, 2), default=0.00)
     is_active = Column(Boolean, default=True)
 
-    # Relationships
+    # Relationships (только существующие, без стратегий)
     domains = relationship("UserDomain", back_populates="user")
     transactions = relationship(
         "BalanceTransaction",
         back_populates="user",
-        foreign_keys="BalanceTransaction.user_id"  # Явно указываем используемый внешний ключ
+        foreign_keys="BalanceTransaction.user_id",  # Явно указываем используемый внешний ключ
     )
 
 
@@ -91,7 +101,9 @@ class UserKeyword(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "user_keywords"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    domain_id = Column(UUID(as_uuid=True), ForeignKey("user_domains.id"), nullable=False)
+    domain_id = Column(
+        UUID(as_uuid=True), ForeignKey("user_domains.id"), nullable=False
+    )
     keyword = Column(String(500), nullable=False)
     region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
 
@@ -111,7 +123,9 @@ class UserDomainSettings(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "user_domain_settings"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    domain_id = Column(UUID(as_uuid=True), ForeignKey("user_domains.id"), nullable=False)
+    domain_id = Column(
+        UUID(as_uuid=True), ForeignKey("user_domains.id"), nullable=False
+    )
     region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
 
     # НОВОЕ ПОЛЕ - тип устройства для парсинга

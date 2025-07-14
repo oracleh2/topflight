@@ -61,7 +61,7 @@ module.exports = {
         // Дополнительный процесс для Celery Worker (если будет нужен)
         {
             name: 'yandex-parser-worker',
-            script: 'run_worker.py',
+            script: 'worker.py',
             interpreter: 'python3',
             cwd: '/var/www/topflight/backend',
 

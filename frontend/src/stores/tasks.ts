@@ -104,6 +104,6 @@ export const useTasksStore = defineStore('tasks', () => {
         createPositionCheckTask,
         fetchUserTasks,
         getTaskStatus,
-        createWarmupTask
+        createWarmupTask,
     }
 })
