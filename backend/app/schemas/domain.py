@@ -8,6 +8,22 @@ from app.models import DeviceType
 
 class DomainAdd(BaseModel):
     domain: str
+    region_id: str
+
+    @validator("domain")
+    def validate_domain(cls, v):
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("Домен не может быть пустым")
+        if len(v) > 255:
+            raise ValueError("Домен слишком длинный")
+        return v
+
+
+class DomainUpdate(BaseModel):
+    domain: str
+    region_id: str
+    is_verified: bool = False
 
     @validator("domain")
     def validate_domain(cls, v):
@@ -25,6 +41,10 @@ class DomainResponse(BaseModel):
     is_verified: bool
     created_at: str
     keywords_count: int
+    region: Optional[dict] = None  # Информация о регионе
+
+    class Config:
+        from_attributes = True
 
 
 class KeywordResponse(BaseModel):
@@ -50,8 +70,7 @@ class RegionResponse(BaseModel):
 
 class BulkKeywordsAdd(BaseModel):
     keywords: List[str] = Field(..., min_items=1, max_items=1000)
-    region_id: str
-    device_type: str = "desktop"  # Изменить на str вместо DeviceType
+    device_type: str = "desktop"
     check_frequency: str = "daily"
 
     @validator("device_type")
@@ -104,7 +123,6 @@ class WordFileLoad(BaseModel):
 
 class KeywordUpdate(BaseModel):
     keyword: str = Field(..., min_length=1, max_length=500)
-    region_id: str
     device_type: str = "desktop"
     check_frequency: str = "daily"
     is_active: bool = True
@@ -139,7 +157,6 @@ class BulkDeleteKeywords(BaseModel):
 
 class KeywordAdd(BaseModel):
     keyword: str
-    region_id: str
     device_type: DeviceType = DeviceType.DESKTOP
     check_frequency: str = "daily"
     is_active: bool = True

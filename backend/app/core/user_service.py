@@ -331,71 +331,168 @@ class UserService:
             logger.error("Failed to regenerate API key", user_id=user_id, error=str(e))
             return {"success": False, "errors": ["Ошибка генерации API ключа"]}
 
-    async def add_domain(self, user_id: str, domain: str) -> Dict[str, Any]:
-        """Добавляет домен пользователю"""
+    async def add_domain(
+        self, user_id: str, domain: str, region_id: str
+    ) -> Dict[str, Any]:
+        """Добавляет домен с указанным регионом"""
         try:
-            # Нормализуем домен
-            domain = domain.lower().strip()
-            if domain.startswith("http://") or domain.startswith("https://"):
-                domain = domain.split("://")[1]
-            if domain.startswith("www."):
-                domain = domain[4:]
-            domain = domain.rstrip("/")
+            # Проверяем существование региона
+            region = await self.session.get(YandexRegion, region_id)
+            if not region:
+                return {"success": False, "errors": ["Регион не найден"]}
 
-            # Проверяем существует ли домен у пользователя
+            # Проверяем существование домена
             existing_domain = await self.session.execute(
                 select(UserDomain).where(
-                    and_(UserDomain.user_id == user_id, UserDomain.domain == domain)
+                    and_(
+                        UserDomain.user_id == user_id,
+                        UserDomain.domain == domain.lower().strip(),
+                    )
                 )
             )
 
             if existing_domain.scalar_one_or_none():
                 return {"success": False, "errors": ["Домен уже добавлен"]}
 
-            # Добавляем домен
+            # Добавляем домен с регионом
             user_domain = UserDomain(
                 user_id=user_id,
-                domain=domain,
-                is_verified=False,  # Потом можно добавить верификацию
+                domain=domain.lower().strip(),
+                region_id=region_id,
+                is_verified=False,
             )
 
             self.session.add(user_domain)
             await self.session.commit()
             await self.session.refresh(user_domain)
 
-            logger.info("Domain added", user_id=user_id, domain=domain)
+            logger.info(
+                "Domain added",
+                user_id=user_id,
+                domain=domain,
+                region_id=region_id,
+                domain_id=str(user_domain.id),
+            )
 
-            return {"success": True, "domain_id": str(user_domain.id), "domain": domain}
+            return {
+                "success": True,
+                "domain_id": str(user_domain.id),
+                "domain": user_domain.domain,
+                "region_id": region_id,
+            }
 
         except Exception as e:
             await self.session.rollback()
             logger.error(
                 "Failed to add domain", user_id=user_id, domain=domain, error=str(e)
             )
-            return {"success": False, "errors": ["Ошибка добавления домена"]}
+            return {"success": False, "errors": [str(e)]}
+
+    async def update_domain(
+        self,
+        user_id: str,
+        domain_id: str,
+        domain: str,
+        region_id: str,
+        is_verified: bool = False,
+    ) -> Dict[str, Any]:
+        """Обновляет домен"""
+        try:
+            # Проверяем существование домена и принадлежность пользователю
+            existing_domain = await self.session.execute(
+                select(UserDomain).where(
+                    and_(UserDomain.id == domain_id, UserDomain.user_id == user_id)
+                )
+            )
+
+            domain_obj = existing_domain.scalar_one_or_none()
+            if not domain_obj:
+                return {"success": False, "errors": ["Домен не найден"]}
+
+            # Проверяем существование региона
+            region = await self.session.get(YandexRegion, region_id)
+            if not region:
+                return {"success": False, "errors": ["Регион не найден"]}
+
+            # Проверяем, что новое имя домена не занято другим доменом
+            if domain.lower().strip() != domain_obj.domain:
+                duplicate_check = await self.session.execute(
+                    select(UserDomain).where(
+                        and_(
+                            UserDomain.user_id == user_id,
+                            UserDomain.domain == domain.lower().strip(),
+                            UserDomain.id != domain_id,
+                        )
+                    )
+                )
+
+                if duplicate_check.scalar_one_or_none():
+                    return {"success": False, "errors": ["Домен уже существует"]}
+
+            # Обновляем домен
+            domain_obj.domain = domain.lower().strip()
+            domain_obj.region_id = region_id
+            domain_obj.is_verified = is_verified
+
+            await self.session.commit()
+
+            logger.info(
+                "Domain updated",
+                user_id=user_id,
+                domain_id=domain_id,
+                domain=domain,
+                region_id=region_id,
+            )
+
+            return {"success": True, "domain_id": domain_id}
+
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(
+                "Failed to update domain",
+                user_id=user_id,
+                domain_id=domain_id,
+                error=str(e),
+            )
+            return {"success": False, "errors": [str(e)]}
 
     async def get_user_domains(self, user_id: str) -> List[Dict[str, Any]]:
-        """Получает домены пользователя"""
+        """Возвращает список доменов пользователя с регионами"""
         try:
-            result = await self.session.execute(
-                select(UserDomain)
-                .options(selectinload(UserDomain.keywords))
+            domains = await self.session.execute(
+                select(UserDomain, YandexRegion)
+                .join(YandexRegion, UserDomain.region_id == YandexRegion.id)
                 .where(UserDomain.user_id == user_id)
                 .order_by(UserDomain.created_at.desc())
             )
 
-            domains = result.scalars().all()
+            result = []
+            for domain, region in domains:
+                # Считаем количество ключевых слов для домена
+                keywords_count = await self.session.execute(
+                    select(func.count(UserKeyword.id)).where(
+                        UserKeyword.domain_id == domain.id
+                    )
+                )
 
-            return [
-                {
-                    "id": str(domain.id),
-                    "domain": domain.domain,
-                    "is_verified": domain.is_verified,
-                    "created_at": domain.created_at.isoformat(),
-                    "keywords_count": len(domain.keywords),
-                }
-                for domain in domains
-            ]
+                result.append(
+                    {
+                        "id": str(domain.id),
+                        "domain": domain.domain,
+                        "is_verified": domain.is_verified,
+                        "created_at": domain.created_at.isoformat(),
+                        "keywords_count": keywords_count.scalar() or 0,
+                        "region": {
+                            "id": str(region.id),
+                            "code": region.region_code,
+                            "name": region.display_name or region.region_name,
+                            "country_code": region.country_code,
+                            "region_type": region.region_type,
+                        },
+                    }
+                )
+
+            return result
 
         except Exception as e:
             logger.error("Failed to get user domains", user_id=user_id, error=str(e))
@@ -406,12 +503,11 @@ class UserService:
         user_id: str,
         domain_id: str,
         keyword: str,
-        region_id: str,
         device_type: DeviceType = DeviceType.DESKTOP,
         check_frequency: str = "daily",
         is_active: bool = True,
     ) -> Dict[str, Any]:
-        """Добавляет ключевое слово с дополнительными параметрами"""
+        """Добавляет ключевое слово (регион берется из домена)"""
         try:
             # Проверяем принадлежность домена пользователю
             domain = await self.session.execute(
@@ -424,18 +520,12 @@ class UserService:
             if not domain_obj:
                 return {"success": False, "errors": ["Домен не найден"]}
 
-            # Проверяем существование региона
-            region = await self.session.get(YandexRegion, region_id)
-            if not region:
-                return {"success": False, "errors": ["Регион не найден"]}
-
             # Проверяем существует ли уже такое ключевое слово
             existing_keyword = await self.session.execute(
                 select(UserKeyword).where(
                     UserKeyword.user_id == user_id,
                     UserKeyword.domain_id == domain_id,
                     UserKeyword.keyword == keyword.strip(),
-                    UserKeyword.region_id == region_id,
                     UserKeyword.device_type == device_type,
                 )
             )
@@ -443,17 +533,14 @@ class UserService:
             if existing_keyword.scalar_one_or_none():
                 return {
                     "success": False,
-                    "errors": [
-                        "Ключевое слово уже добавлено для этого домена и региона"
-                    ],
+                    "errors": ["Ключевое слово уже добавлено для этого домена"],
                 }
 
-            # Добавляем ключевое слово
+            # Добавляем ключевое слово (регион наследуется от домена)
             user_keyword = UserKeyword(
                 user_id=user_id,
                 domain_id=domain_id,
                 keyword=keyword.strip(),
-                region_id=region_id,
                 device_type=device_type,
                 check_frequency=check_frequency,
                 is_active=is_active,
@@ -463,57 +550,83 @@ class UserService:
             await self.session.commit()
             await self.session.refresh(user_keyword)
 
-            logger.info(f"Keyword added: {keyword} for user {user_id}")
+            logger.info(
+                "Keyword added",
+                user_id=user_id,
+                domain_id=domain_id,
+                keyword=keyword,
+                keyword_id=str(user_keyword.id),
+            )
 
             return {
                 "success": True,
                 "keyword_id": str(user_keyword.id),
-                "keyword": keyword,
-                "device_type": device_type.value,
-                "check_frequency": check_frequency,
-                "is_active": is_active,
+                "keyword": user_keyword.keyword,
+                "region_id": str(domain_obj.region_id),  # Возвращаем регион из домена
             }
 
         except Exception as e:
             await self.session.rollback()
-            logger.error(f"Failed to add keyword: {str(e)}")
-            return {"success": False, "errors": ["Ошибка добавления ключевого слова"]}
+            logger.error(
+                "Failed to add keyword",
+                user_id=user_id,
+                domain_id=domain_id,
+                keyword=keyword,
+                error=str(e),
+            )
+            return {"success": False, "errors": [str(e)]}
 
     async def get_domain_keywords(
         self, user_id: str, domain_id: str
     ) -> List[Dict[str, Any]]:
-        """Получает ключевые слова домена"""
+        """Возвращает ключевые слова для домена с информацией о регионе"""
         try:
-            result = await self.session.execute(
+            # Получаем домен и его регион
+            domain_query = await self.session.execute(
+                select(UserDomain, YandexRegion)
+                .join(YandexRegion, UserDomain.region_id == YandexRegion.id)
+                .where(and_(UserDomain.id == domain_id, UserDomain.user_id == user_id))
+            )
+
+            domain_result = domain_query.first()
+            if not domain_result:
+                return []
+
+            domain, region = domain_result
+
+            # Получаем ключевые слова для домена
+            keywords = await self.session.execute(
                 select(UserKeyword)
-                .options(selectinload(UserKeyword.region))
                 .where(
                     and_(
-                        UserKeyword.user_id == user_id,
                         UserKeyword.domain_id == domain_id,
+                        UserKeyword.user_id == user_id,
                     )
                 )
                 .order_by(UserKeyword.created_at.desc())
             )
 
-            keywords = result.scalars().all()
+            result = []
+            for keyword in keywords.scalars():
+                result.append(
+                    {
+                        "id": str(keyword.id),
+                        "keyword": keyword.keyword,
+                        "device_type": keyword.device_type.value,
+                        "is_active": keyword.is_active,
+                        "check_frequency": keyword.check_frequency,
+                        "created_at": keyword.created_at.isoformat(),
+                        "region": {
+                            "id": str(region.id),
+                            "code": region.region_code,
+                            "name": region.display_name or region.region_name,
+                            "country_code": region.country_code,
+                            "region_type": region.region_type,
+                        },
+                    }
+                )
 
-            return [
-                {
-                    "id": str(keyword.id),
-                    "keyword": keyword.keyword,
-                    "region": {
-                        "id": str(keyword.region.id),
-                        "code": keyword.region.region_code,
-                        "name": keyword.region.region_name,
-                    },
-                    "device_type": keyword.device_type.value,
-                    "is_active": keyword.is_active,
-                    "check_frequency": keyword.check_frequency,
-                    "created_at": keyword.created_at.isoformat(),
-                }
-                for keyword in keywords
-            ]
+            return result
 
         except Exception as e:
             logger.error(

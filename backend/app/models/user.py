@@ -91,10 +91,15 @@ class UserDomain(Base, UUIDMixin, TimestampMixin):
     domain = Column(String(255), nullable=False)
     is_verified = Column(Boolean, default=False)
 
+    region_id = Column(
+        UUID(as_uuid=True), ForeignKey("yandex_regions.id"), nullable=False
+    )
+
     # Relationships
     user = relationship("User", back_populates="domains")
     keywords = relationship("UserKeyword", back_populates="domain")
     settings = relationship("UserDomainSettings", back_populates="domain")
+    region = relationship("YandexRegion")
 
 
 class UserKeyword(Base, UUIDMixin, TimestampMixin):
@@ -106,9 +111,9 @@ class UserKeyword(Base, UUIDMixin, TimestampMixin):
     )
     keyword = Column(String(500), nullable=False)
     # region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
-    region_id = Column(
-        UUID(as_uuid=True), ForeignKey("yandex_regions.id"), nullable=False
-    )
+    # region_id = Column(
+    #     UUID(as_uuid=True), ForeignKey("yandex_regions.id"), nullable=False
+    # )
 
     # НОВОЕ ПОЛЕ - тип устройства для этого ключевого слова
     device_type = Column(Enum(DeviceType), nullable=False, default=DeviceType.DESKTOP)
@@ -120,7 +125,7 @@ class UserKeyword(Base, UUIDMixin, TimestampMixin):
     user = relationship("User")
     domain = relationship("UserDomain", back_populates="keywords")
     # region = relationship("Region")
-    region = relationship("YandexRegion")
+    # region = relationship("YandexRegion")
 
 
 class UserDomainSettings(Base, UUIDMixin, TimestampMixin):

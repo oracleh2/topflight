@@ -29,6 +29,7 @@ from app.schemas.domain import (
     KeywordUpdate,
     BulkDeleteKeywords,
     BulkEditKeywords,
+    DomainUpdate,
 )
 
 router = APIRouter(prefix="/domains", tags=["Domains"])
@@ -101,10 +102,12 @@ async def add_domain(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Добавление домена"""
+    """Добавление домена с регионом"""
     user_service = UserService(session)
     result = await user_service.add_domain(
-        user_id=str(current_user.id), domain=domain_data.domain
+        user_id=str(current_user.id),
+        domain=domain_data.domain,
+        region_id=domain_data.region_id,
     )
 
     if not result["success"]:
@@ -117,6 +120,7 @@ async def add_domain(
         "message": "Домен успешно добавлен",
         "domain_id": result["domain_id"],
         "domain": result["domain"],
+        "region_id": result["region_id"],
     }
 
 
@@ -125,7 +129,7 @@ async def get_user_domains(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Получение доменов пользователя"""
+    """Получение доменов пользователя с регионами"""
     user_service = UserService(session)
     domains = await user_service.get_user_domains(str(current_user.id))
 
@@ -139,13 +143,12 @@ async def add_keyword(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Добавление ключевого слова"""
+    """Добавление ключевого слова (регион берется из домена)"""
     user_service = UserService(session)
     result = await user_service.add_keyword(
         user_id=str(current_user.id),
         domain_id=domain_id,
         keyword=keyword_data.keyword,
-        region_id=keyword_data.region_id,
         device_type=keyword_data.device_type,
         check_frequency=keyword_data.check_frequency,
         is_active=keyword_data.is_active,
@@ -160,6 +163,7 @@ async def add_keyword(
         "success": True,
         "message": "Ключевое слово успешно добавлено",
         "keyword_id": result["keyword_id"],
+        "region_id": result["region_id"],
     }
 
 
@@ -834,6 +838,35 @@ def extract_keywords_from_word(content: bytes) -> List[str]:
 
     except Exception as e:
         raise ValueError(f"Ошибка обработки Word документа: {str(e)}")
+
+
+@router.put("/{domain_id}", response_model=dict)
+async def update_domain(
+    domain_id: str,
+    domain_data: DomainUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновление домена"""
+    user_service = UserService(session)
+    result = await user_service.update_domain(
+        user_id=str(current_user.id),
+        domain_id=domain_id,
+        domain=domain_data.domain,
+        region_id=domain_data.region_id,
+        is_verified=domain_data.is_verified,
+    )
+
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=result["errors"]
+        )
+
+    return {
+        "success": True,
+        "message": "Домен успешно обновлен",
+        "domain_id": domain_id,
+    }
 
 
 @router.delete("/{domain_id}", response_model=dict)
