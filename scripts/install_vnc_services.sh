@@ -25,8 +25,8 @@ sudo mkdir -p "$PROJECT_ROOT/data/vnc_tokens"
 sudo mkdir -p "/tmp/vnc_displays"
 
 # Устанавливаем права
-sudo chown -R topflight:topflight "$PROJECT_ROOT/data"
-sudo chown -R topflight:topflight "$LOGS_DIR"
+sudo chown -R oleg:oleg "$PROJECT_ROOT/data"
+sudo chown -R oleg:oleg "$LOGS_DIR"
 sudo chmod 755 "$LOGS_DIR"
 
 # Создаем systemd сервис для основного Xvfb
@@ -374,7 +374,7 @@ sudo rm -f /tmp/.X11-unix/X{100..199}
 log_message "Cleaning VNC data..."
 rm -f "$PROJECT_ROOT/data/vnc_tokens/vnc_tokens.conf"
 touch "$PROJECT_ROOT/data/vnc_tokens/vnc_tokens.conf"
-chown topflight:topflight "$PROJECT_ROOT/data/vnc_tokens/vnc_tokens.conf"
+chown oleg:oleg "$PROJECT_ROOT/data/vnc_tokens/vnc_tokens.conf"
 
 # Очищаем VNC сессии через API если доступно
 if curl -f -s "http://localhost:8000/health" > /dev/null 2>&1; then
@@ -394,7 +394,7 @@ EOF
 chmod +x "$SCRIPTS_DIR"/*.sh
 
 # Устанавливаем права на скрипты
-sudo chown topflight:topflight "$SCRIPTS_DIR"/*.sh
+sudo chown oleg:oleg "$SCRIPTS_DIR"/*.sh
 
 # Перезагружаем systemd
 sudo systemctl daemon-reload

@@ -83,9 +83,9 @@ fi
 
 # Настройка прав доступа
 log "Setting up permissions..."
-sudo chown -R topflight:topflight "$PROJECT_ROOT" 2>/dev/null || true
+sudo chown -R oleg:oleg "$PROJECT_ROOT" 2>/dev/null || true
 sudo mkdir -p "$PROJECT_ROOT/data/vnc" "$PROJECT_ROOT/data/vnc_tokens"
-sudo chown -R topflight:topflight "$PROJECT_ROOT/data" 2>/dev/null || true
+sudo chown -R oleg:oleg "$PROJECT_ROOT/data" 2>/dev/null || true
 
 # Проверка существования systemd сервиса для основного Xvfb
 SERVICE_NAME="xvfb-main"
@@ -236,7 +236,7 @@ echo "✅ TopFlight display environment is ready!"
 EOF
 
 chmod +x "$TEST_SCRIPT"
-chown topflight:topflight "$TEST_SCRIPT" 2>/dev/null || true
+chown oleg:oleg "$TEST_SCRIPT" 2>/dev/null || true
 
 log "Xvfb setup complete!"
 echo ""

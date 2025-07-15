@@ -109,7 +109,7 @@ chmod +x scripts/setup_xvfb.sh
 # Создание пользователя и директорий
 sudo useradd -m -s /bin/bash topflight
 sudo mkdir -p /var/www/topflight
-sudo chown topflight:topflight /var/www/topflight
+sudo chown oleg:oleg /var/www/topflight
 
 # Переключение на пользователя
 sudo su - topflight
@@ -781,7 +781,7 @@ chmod +x backend/scripts/setup_xvfb.sh
 ```bash
 # Клонирование в правильную директорию
 sudo mkdir -p /var/www/topflight
-sudo chown topflight:topflight /var/www/topflight
+sudo chown oleg:oleg /var/www/topflight
 cd /var/www/topflight
 
 # Следуйте инструкциям из README.md
