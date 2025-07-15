@@ -1,15 +1,23 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from decimal import Decimal
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, func
 from sqlalchemy.orm import selectinload
 import structlog
 
 from app.models import (
-    User, UserBalance, BalanceTransaction, TariffPlan,
-    UserDomain, UserKeyword, UserDomainSettings, Region, DeviceType
+    User,
+    UserBalance,
+    BalanceTransaction,
+    TariffPlan,
+    UserDomain,
+    UserKeyword,
+    UserDomainSettings,
+    Region,
+    DeviceType,
 )
 from .auth import AuthService, PasswordValidator, EmailValidator
 
@@ -22,25 +30,20 @@ class UserService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_user(self, email: str, password: str,
-                          subscription_plan: str = "basic") -> Dict[str, Any]:
+    async def create_user(
+        self, email: str, password: str, subscription_plan: str = "basic"
+    ) -> Dict[str, Any]:
         """Создает нового пользователя"""
         try:
             # Валидация email
             email_validation = EmailValidator.validate(email)
             if not email_validation["valid"]:
-                return {
-                    "success": False,
-                    "errors": email_validation["errors"]
-                }
+                return {"success": False, "errors": email_validation["errors"]}
 
             # Валидация пароля
             password_validation = PasswordValidator.validate(password)
             if not password_validation["valid"]:
-                return {
-                    "success": False,
-                    "errors": password_validation["errors"]
-                }
+                return {"success": False, "errors": password_validation["errors"]}
 
             email = email.lower().strip()
 
@@ -52,7 +55,7 @@ class UserService:
             if existing_user.scalar_one_or_none():
                 return {
                     "success": False,
-                    "errors": ["Пользователь с таким email уже существует"]
+                    "errors": ["Пользователь с таким email уже существует"],
                 }
 
             # Создаем пользователя
@@ -61,8 +64,8 @@ class UserService:
                 password_hash=AuthService.get_password_hash(password),
                 subscription_plan=subscription_plan,
                 api_key=AuthService.generate_api_key(),
-                balance=Decimal('0.00'),
-                is_active=True
+                balance=Decimal("0.00"),
+                is_active=True,
             )
 
             self.session.add(user)
@@ -71,8 +74,8 @@ class UserService:
             # Создаем баланс пользователя
             user_balance = UserBalance(
                 user_id=user.id,
-                current_balance=Decimal('0.00'),
-                reserved_balance=Decimal('0.00')
+                current_balance=Decimal("0.00"),
+                reserved_balance=Decimal("0.00"),
             )
 
             self.session.add(user_balance)
@@ -80,19 +83,91 @@ class UserService:
 
             logger.info("User created", user_id=str(user.id), email=email)
 
-            return {
-                "success": True,
-                "user_id": str(user.id),
-                "api_key": user.api_key
-            }
+            return {"success": True, "user_id": str(user.id), "api_key": user.api_key}
 
         except Exception as e:
             await self.session.rollback()
             logger.error("Failed to create user", email=email, error=str(e))
+            return {"success": False, "errors": ["Ошибка создания пользователя"]}
+
+    async def add_balance(
+        self,
+        user_id: Union[str, UUID],
+        amount: Union[Decimal, float, int],  # Принимаем разные типы
+        description: str = "Пополнение баланса",
+        admin_id: Optional[Union[str, UUID]] = None,
+    ) -> Dict[str, Any]:
+        """Добавить средства на баланс пользователя"""
+        try:
+            # Преобразуем в UUID если строка
+            if isinstance(user_id, str):
+                user_id = UUID(user_id)
+            if isinstance(admin_id, str) and admin_id:
+                admin_id = UUID(admin_id)
+
+            # Преобразуем amount в Decimal
+            if isinstance(amount, (float, int)):
+                amount = Decimal(str(amount))
+            elif not isinstance(amount, Decimal):
+                amount = Decimal(str(amount))
+
+            # Получить текущий баланс
+            balance_stmt = select(UserBalance).where(UserBalance.user_id == user_id)
+            balance_result = await self.session.execute(balance_stmt)
+            user_balance = balance_result.scalar_one_or_none()
+
+            if not user_balance:
+                # Создать баланс если не существует
+                user_balance = UserBalance(
+                    user_id=user_id,
+                    current_balance=Decimal("0.00"),
+                    reserved_balance=Decimal("0.00"),
+                )
+                self.session.add(user_balance)
+                await self.session.flush()
+
+            # Сохранить старый баланс
+            old_balance = user_balance.current_balance
+            new_balance = old_balance + amount
+
+            # Обновить баланс
+            user_balance.current_balance = new_balance
+            user_balance.last_topup_amount = amount
+            user_balance.last_topup_date = datetime.utcnow()
+
+            # Создать транзакцию
+            transaction = BalanceTransaction(
+                user_id=user_id,
+                amount=amount,
+                type="topup",
+                description=description,
+                admin_id=admin_id,
+            )
+            self.session.add(transaction)
+
+            # Также обновить поле balance в таблице users
+            user_stmt = select(User).where(User.id == user_id)
+            user_result = await self.session.execute(user_stmt)
+            user = user_result.scalar_one_or_none()
+            if user:
+                user.balance = new_balance
+
+            await self.session.commit()
+
+            logger.info("Balance added", user_id=str(user_id), amount=str(amount))
+
             return {
-                "success": False,
-                "errors": ["Ошибка создания пользователя"]
+                "success": True,
+                "transaction_id": str(transaction.id),
+                "old_balance": float(old_balance),
+                "new_balance": float(new_balance),
+                "amount": float(amount),
             }
+
+        except Exception as e:
+            await self.session.rollback()
+            logger.error("Failed to add balance", user_id=str(user_id), error=str(e))
+            return {"success": False, "errors": ["Ошибка пополнения баланса"]}
 
     async def authenticate_and_login(self, email: str, password: str) -> Dict[str, Any]:
         """Аутентифицирует пользователя и создает токены"""
@@ -100,10 +175,7 @@ class UserService:
             user = await AuthService.authenticate_user(self.session, email, password)
 
             if not user:
-                return {
-                    "success": False,
-                    "errors": ["Неверный email или пароль"]
-                }
+                return {"success": False, "errors": ["Неверный email или пароль"]}
 
             # Создаем токены
             token_data = {"sub": str(user.id), "email": user.email}
@@ -119,26 +191,20 @@ class UserService:
                     "id": str(user.id),
                     "email": user.email,
                     "subscription_plan": user.subscription_plan,
-                    "balance": float(user.balance)
-                }
+                    "balance": float(user.balance),
+                },
             }
 
         except Exception as e:
             logger.error("Login failed", email=email, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка авторизации"]
-            }
+            return {"success": False, "errors": ["Ошибка авторизации"]}
 
     async def refresh_access_token(self, refresh_token: str) -> Dict[str, Any]:
         """Обновляет access token используя refresh token"""
         try:
             payload = AuthService.verify_token(refresh_token, "refresh")
             if not payload:
-                return {
-                    "success": False,
-                    "errors": ["Недействительный refresh token"]
-                }
+                return {"success": False, "errors": ["Недействительный refresh token"]}
 
             user_id = payload.get("sub")
             user = await self.session.get(User, user_id)
@@ -146,7 +212,7 @@ class UserService:
             if not user or not user.is_active:
                 return {
                     "success": False,
-                    "errors": ["Пользователь не найден или неактивен"]
+                    "errors": ["Пользователь не найден или неактивен"],
                 }
 
             # Создаем новый access token
@@ -156,15 +222,12 @@ class UserService:
             return {
                 "success": True,
                 "access_token": access_token,
-                "token_type": "bearer"
+                "token_type": "bearer",
             }
 
         except Exception as e:
             logger.error("Token refresh failed", error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка обновления токена"]
-            }
+            return {"success": False, "errors": ["Ошибка обновления токена"]}
 
     async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Получает профиль пользователя"""
@@ -201,39 +264,39 @@ class UserService:
                 "created_at": user.created_at.isoformat(),
                 "domains_count": domains_count or 0,
                 "keywords_count": keywords_count or 0,
-                "last_topup_amount": float(balance.last_topup_amount) if balance.last_topup_amount else None,
-                "last_topup_date": balance.last_topup_date.isoformat() if balance.last_topup_date else None
+                "last_topup_amount": (
+                    float(balance.last_topup_amount)
+                    if balance.last_topup_amount
+                    else None
+                ),
+                "last_topup_date": (
+                    balance.last_topup_date.isoformat()
+                    if balance.last_topup_date
+                    else None
+                ),
             }
 
         except Exception as e:
             logger.error("Failed to get user profile", user_id=user_id, error=str(e))
             return None
 
-    async def change_password(self, user_id: str, current_password: str,
-                              new_password: str) -> Dict[str, Any]:
+    async def change_password(
+        self, user_id: str, current_password: str, new_password: str
+    ) -> Dict[str, Any]:
         """Изменяет пароль пользователя"""
         try:
             user = await self.session.get(User, user_id)
             if not user:
-                return {
-                    "success": False,
-                    "errors": ["Пользователь не найден"]
-                }
+                return {"success": False, "errors": ["Пользователь не найден"]}
 
             # Проверяем текущий пароль
             if not AuthService.verify_password(current_password, user.password_hash):
-                return {
-                    "success": False,
-                    "errors": ["Неверный текущий пароль"]
-                }
+                return {"success": False, "errors": ["Неверный текущий пароль"]}
 
             # Валидируем новый пароль
             validation = PasswordValidator.validate(new_password)
             if not validation["valid"]:
-                return {
-                    "success": False,
-                    "errors": validation["errors"]
-                }
+                return {"success": False, "errors": validation["errors"]}
 
             # Обновляем пароль
             user.password_hash = AuthService.get_password_hash(new_password)
@@ -246,38 +309,26 @@ class UserService:
         except Exception as e:
             await self.session.rollback()
             logger.error("Failed to change password", user_id=user_id, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка изменения пароля"]
-            }
+            return {"success": False, "errors": ["Ошибка изменения пароля"]}
 
     async def regenerate_api_key(self, user_id: str) -> Dict[str, Any]:
         """Генерирует новый API ключ"""
         try:
             user = await self.session.get(User, user_id)
             if not user:
-                return {
-                    "success": False,
-                    "errors": ["Пользователь не найден"]
-                }
+                return {"success": False, "errors": ["Пользователь не найден"]}
 
             user.api_key = AuthService.generate_api_key()
             await self.session.commit()
 
             logger.info("API key regenerated", user_id=user_id)
 
-            return {
-                "success": True,
-                "api_key": user.api_key
-            }
+            return {"success": True, "api_key": user.api_key}
 
         except Exception as e:
             await self.session.rollback()
             logger.error("Failed to regenerate API key", user_id=user_id, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка генерации API ключа"]
-            }
+            return {"success": False, "errors": ["Ошибка генерации API ключа"]}
 
     async def add_domain(self, user_id: str, domain: str) -> Dict[str, Any]:
         """Добавляет домен пользователю"""
@@ -293,24 +344,18 @@ class UserService:
             # Проверяем существует ли домен у пользователя
             existing_domain = await self.session.execute(
                 select(UserDomain).where(
-                    and_(
-                        UserDomain.user_id == user_id,
-                        UserDomain.domain == domain
-                    )
+                    and_(UserDomain.user_id == user_id, UserDomain.domain == domain)
                 )
             )
 
             if existing_domain.scalar_one_or_none():
-                return {
-                    "success": False,
-                    "errors": ["Домен уже добавлен"]
-                }
+                return {"success": False, "errors": ["Домен уже добавлен"]}
 
             # Добавляем домен
             user_domain = UserDomain(
                 user_id=user_id,
                 domain=domain,
-                is_verified=False  # Потом можно добавить верификацию
+                is_verified=False,  # Потом можно добавить верификацию
             )
 
             self.session.add(user_domain)
@@ -319,19 +364,14 @@ class UserService:
 
             logger.info("Domain added", user_id=user_id, domain=domain)
 
-            return {
-                "success": True,
-                "domain_id": str(user_domain.id),
-                "domain": domain
-            }
+            return {"success": True, "domain_id": str(user_domain.id), "domain": domain}
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add domain", user_id=user_id, domain=domain, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка добавления домена"]
-            }
+            logger.error(
+                "Failed to add domain", user_id=user_id, domain=domain, error=str(e)
+            )
+            return {"success": False, "errors": ["Ошибка добавления домена"]}
 
     async def get_user_domains(self, user_id: str) -> List[Dict[str, Any]]:
         """Получает домены пользователя"""
@@ -351,7 +391,7 @@ class UserService:
                     "domain": domain.domain,
                     "is_verified": domain.is_verified,
                     "created_at": domain.created_at.isoformat(),
-                    "keywords_count": len(domain.keywords)
+                    "keywords_count": len(domain.keywords),
                 }
                 for domain in domains
             ]
@@ -360,34 +400,31 @@ class UserService:
             logger.error("Failed to get user domains", user_id=user_id, error=str(e))
             return []
 
-    async def add_keyword(self, user_id: str, domain_id: str, keyword: str,
-                          region_id: str, device_type: DeviceType = DeviceType.DESKTOP) -> Dict[str, Any]:
+    async def add_keyword(
+        self,
+        user_id: str,
+        domain_id: str,
+        keyword: str,
+        region_id: str,
+        device_type: DeviceType = DeviceType.DESKTOP,
+    ) -> Dict[str, Any]:
         """Добавляет ключевое слово"""
         try:
             # Проверяем принадлежность домена пользователю
             domain = await self.session.execute(
                 select(UserDomain).where(
-                    and_(
-                        UserDomain.id == domain_id,
-                        UserDomain.user_id == user_id
-                    )
+                    and_(UserDomain.id == domain_id, UserDomain.user_id == user_id)
                 )
             )
 
             domain_obj = domain.scalar_one_or_none()
             if not domain_obj:
-                return {
-                    "success": False,
-                    "errors": ["Домен не найден"]
-                }
+                return {"success": False, "errors": ["Домен не найден"]}
 
             # Проверяем существование региона
             region = await self.session.get(Region, region_id)
             if not region:
-                return {
-                    "success": False,
-                    "errors": ["Регион не найден"]
-                }
+                return {"success": False, "errors": ["Регион не найден"]}
 
             # Проверяем существует ли уже такое ключевое слово
             existing_keyword = await self.session.execute(
@@ -397,7 +434,7 @@ class UserService:
                         UserKeyword.domain_id == domain_id,
                         UserKeyword.keyword == keyword.strip(),
                         UserKeyword.region_id == region_id,
-                        UserKeyword.device_type == device_type
+                        UserKeyword.device_type == device_type,
                     )
                 )
             )
@@ -405,7 +442,9 @@ class UserService:
             if existing_keyword.scalar_one_or_none():
                 return {
                     "success": False,
-                    "errors": ["Ключевое слово уже добавлено для этого домена и региона"]
+                    "errors": [
+                        "Ключевое слово уже добавлено для этого домена и региона"
+                    ],
                 }
 
             # Добавляем ключевое слово
@@ -415,36 +454,38 @@ class UserService:
                 keyword=keyword.strip(),
                 region_id=region_id,
                 device_type=device_type,
-                is_active=True
+                is_active=True,
             )
 
             self.session.add(user_keyword)
             await self.session.commit()
             await self.session.refresh(user_keyword)
 
-            logger.info("Keyword added",
-                        user_id=user_id,
-                        keyword=keyword,
-                        domain_id=domain_id,
-                        device_type=device_type.value)
+            logger.info(
+                "Keyword added",
+                user_id=user_id,
+                keyword=keyword,
+                domain_id=domain_id,
+                device_type=device_type.value,
+            )
 
             return {
                 "success": True,
                 "keyword_id": str(user_keyword.id),
                 "keyword": keyword,
-                "device_type": device_type.value
+                "device_type": device_type.value,
             }
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add keyword",
-                         user_id=user_id, keyword=keyword, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка добавления ключевого слова"]
-            }
+            logger.error(
+                "Failed to add keyword", user_id=user_id, keyword=keyword, error=str(e)
+            )
+            return {"success": False, "errors": ["Ошибка добавления ключевого слова"]}
 
-    async def get_domain_keywords(self, user_id: str, domain_id: str) -> List[Dict[str, Any]]:
+    async def get_domain_keywords(
+        self, user_id: str, domain_id: str
+    ) -> List[Dict[str, Any]]:
         """Получает ключевые слова домена"""
         try:
             result = await self.session.execute(
@@ -453,7 +494,7 @@ class UserService:
                 .where(
                     and_(
                         UserKeyword.user_id == user_id,
-                        UserKeyword.domain_id == domain_id
+                        UserKeyword.domain_id == domain_id,
                     )
                 )
                 .order_by(UserKeyword.created_at.desc())
@@ -468,19 +509,23 @@ class UserService:
                     "region": {
                         "id": str(keyword.region.id),
                         "code": keyword.region.region_code,
-                        "name": keyword.region.region_name
+                        "name": keyword.region.region_name,
                     },
                     "device_type": keyword.device_type.value,
                     "is_active": keyword.is_active,
                     "check_frequency": keyword.check_frequency,
-                    "created_at": keyword.created_at.isoformat()
+                    "created_at": keyword.created_at.isoformat(),
                 }
                 for keyword in keywords
             ]
 
         except Exception as e:
-            logger.error("Failed to get domain keywords",
-                         user_id=user_id, domain_id=domain_id, error=str(e))
+            logger.error(
+                "Failed to get domain keywords",
+                user_id=user_id,
+                domain_id=domain_id,
+                error=str(e),
+            )
             return []
 
     async def delete_keyword(self, user_id: str, keyword_id: str) -> Dict[str, Any]:
@@ -488,19 +533,13 @@ class UserService:
         try:
             keyword = await self.session.execute(
                 select(UserKeyword).where(
-                    and_(
-                        UserKeyword.id == keyword_id,
-                        UserKeyword.user_id == user_id
-                    )
+                    and_(UserKeyword.id == keyword_id, UserKeyword.user_id == user_id)
                 )
             )
 
             keyword_obj = keyword.scalar_one_or_none()
             if not keyword_obj:
-                return {
-                    "success": False,
-                    "errors": ["Ключевое слово не найдено"]
-                }
+                return {"success": False, "errors": ["Ключевое слово не найдено"]}
 
             await self.session.delete(keyword_obj)
             await self.session.commit()
@@ -511,38 +550,28 @@ class UserService:
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to delete keyword",
-                         user_id=user_id, keyword_id=keyword_id, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка удаления ключевого слова"]
-            }
+            logger.error(
+                "Failed to delete keyword",
+                user_id=user_id,
+                keyword_id=keyword_id,
+                error=str(e),
+            )
+            return {"success": False, "errors": ["Ошибка удаления ключевого слова"]}
 
     async def delete_domain(self, user_id: str, domain_id: str) -> Dict[str, Any]:
         """Удаляет домен и все связанные ключевые слова"""
         try:
             domain = await self.session.execute(
                 select(UserDomain).where(
-                    and_(
-                        UserDomain.id == domain_id,
-                        UserDomain.user_id == user_id
-                    )
+                    and_(UserDomain.id == domain_id, UserDomain.user_id == user_id)
                 )
             )
 
             domain_obj = domain.scalar_one_or_none()
             if not domain_obj:
-                return {
-                    "success": False,
-                    "errors": ["Домен не найден"]
-                }
+                return {"success": False, "errors": ["Домен не найден"]}
 
-            # Удаляем все ключевые слова домена
-            await self.session.execute(
-                select(UserKeyword).where(UserKeyword.domain_id == domain_id)
-            )
-
-            # Удаляем домен
+            # Удаляем домен (каскадно удалятся связанные ключевые слова)
             await self.session.delete(domain_obj)
             await self.session.commit()
 
@@ -552,9 +581,10 @@ class UserService:
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to delete domain",
-                         user_id=user_id, domain_id=domain_id, error=str(e))
-            return {
-                "success": False,
-                "errors": ["Ошибка удаления домена"]
-            }
+            logger.error(
+                "Failed to delete domain",
+                user_id=user_id,
+                domain_id=domain_id,
+                error=str(e),
+            )
+            return {"success": False, "errors": ["Ошибка удаления домена"]}
