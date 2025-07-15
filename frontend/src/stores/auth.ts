@@ -134,6 +134,25 @@ export const useAuthStore = defineStore('auth', () => {
         localStorage.removeItem('refresh_token')
     }
 
+    const isAdmin = computed(() => {
+        if (!user.value?.email) return false
+
+        // Проверка по email (как в бэкенде)
+        const adminEmails = ['oracleh2@gmail.com']
+        if (adminEmails.includes(user.value.email)) return true
+
+        // Проверка по полю is_admin если есть
+        if (user.value.is_admin) return true
+
+        // Проверка по роли если есть
+        if (user.value.role === 'admin') return true
+
+        // Проверка по subscription_plan если есть
+        if (user.value.subscription_plan === 'admin') return true
+
+        return false
+    })
+
     return {
         user,
         token,
@@ -142,12 +161,15 @@ export const useAuthStore = defineStore('auth', () => {
         error,
         isAuthenticated,
         availableBalance,
+        isAdmin,
+
         login,
         register,
         refreshAccessToken,
         fetchProfile,
         changePassword,
         regenerateApiKey,
-        logout
+        logout,
+
     }
 })

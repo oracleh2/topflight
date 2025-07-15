@@ -260,7 +260,8 @@ import {
     GlobeAltIcon,
     CreditCardIcon,
     ClipboardDocumentListIcon,
-    UserIcon
+    UserIcon,
+    BugAntIcon
 } from '@heroicons/vue/24/outline'
 import {useAuthStore} from '@/stores/auth'
 
@@ -268,17 +269,31 @@ const route = useRoute()
 const authStore = useAuthStore()
 const sidebarOpen = ref(false)
 
-const navigation = [
-    {name: 'Dashboard', label: 'Дашборд', to: '/dashboard', icon: HomeIcon},
-    {name: 'Domains', label: 'Домены', to: '/domains', icon: GlobeAltIcon},
-    {name: 'Billing', label: 'Биллинг', to: '/billing', icon: CreditCardIcon},
-    {name: 'Tasks', label: 'Задачи', to: '/tasks', icon: ClipboardDocumentListIcon},
-    {name: 'Profile', label: 'Профиль', to: '/profile', icon: UserIcon},
-    {name: 'Strategies', label: 'Стратегии', to: '/strategies', icon: CurrencyDollarIcon},
-]
+const navigation = computed(() => {
+    const baseNavigation = [
+        {name: 'Dashboard', label: 'Дашборд', to: '/dashboard', icon: HomeIcon},
+        {name: 'Domains', label: 'Домены', to: '/domains', icon: GlobeAltIcon},
+        {name: 'Billing', label: 'Биллинг', to: '/billing', icon: CreditCardIcon},
+        {name: 'Tasks', label: 'Задачи', to: '/tasks', icon: ClipboardDocumentListIcon},
+        {name: 'Profile', label: 'Профиль', to: '/profile', icon: UserIcon},
+        {name: 'Strategies', label: 'Стратегии', to: '/strategies', icon: CurrencyDollarIcon},
+    ]
+
+    // Добавляем админские пункты меню
+    if (authStore.isAdmin) {
+        baseNavigation.push({
+            name: 'TaskDebug',
+            label: 'Дебаг задач',
+            to: '/admin/debug',
+            icon: BugAntIcon
+        })
+    }
+
+    return baseNavigation
+})
 
 const pageTitle = computed(() => {
-    const current = navigation.find(item => item.name === route.name)
+    const current = navigation.value.find(item => item.name === route.name)
     return current?.label || 'Дашборд'
 })
 

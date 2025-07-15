@@ -271,6 +271,7 @@
 import {ref, onMounted} from 'vue'
 import VncInstructionsModal from './VncInstructionsModal.vue'
 import ScreenshotModal from './ScreenshotModal.vue'
+import {api} from '@/api'  // ← Используем ваш API клиент
 
 // Reactive data
 const loading = ref(false)
@@ -288,50 +289,6 @@ const showVncModal = ref(false)
 const showScreenshotModal = ref(false)
 const selectedTaskId = ref('')
 
-// Mock API для тестирования (замените на реальные API вызовы)
-const api = {
-    get: async (url) => {
-        console.log('GET:', url)
-
-        if (url.includes('/admin/debug/sessions')) {
-            return {data: []}
-        }
-
-        if (url.includes('/admin/tasks')) {
-            return {
-                data: {
-                    tasks: [
-                        {
-                            task_id: 'test-task-1',
-                            task_type: 'parse_serp',
-                            status: 'pending',
-                            parameters: {
-                                keyword: 'test query',
-                                device_type: 'desktop',
-                                region_code: '213',
-                                debug_enabled: false
-                            }
-                        }
-                    ],
-                    total: 1
-                }
-            }
-        }
-
-        return {data: {}}
-    },
-
-    post: async (url, data) => {
-        console.log('POST:', url, data)
-        return {
-            data: {
-                success: true,
-                message: 'Success'
-            }
-        }
-    }
-}
-
 // Methods
 const loadTasks = async (reset = true) => {
     try {
@@ -342,21 +299,19 @@ const loadTasks = async (reset = true) => {
             tasks.value = []
         }
 
-        const response = await api.get('/admin/tasks', {
-            params: {
-                limit: pageSize.value,
-                offset: currentPage.value * pageSize.value,
-                status: statusFilter.value || undefined
-            }
-        })
+        const response = await api.getAdminTasks(
+            pageSize.value,
+            currentPage.value * pageSize.value,
+            statusFilter.value || undefined
+        )
 
         if (reset) {
-            tasks.value = response.data.tasks
+            tasks.value = response.data.tasks || []
         } else {
-            tasks.value.push(...response.data.tasks)
+            tasks.value.push(...(response.data.tasks || []))
         }
 
-        totalTasks.value = response.data.total
+        totalTasks.value = response.data.total || 0
         currentPage.value++
 
     } catch (error) {
@@ -373,8 +328,8 @@ const loadMoreTasks = () => {
 
 const refreshSessions = async () => {
     try {
-        const response = await api.get('/admin/debug/sessions')
-        activeSessions.value = response.data
+        const response = await api.getDebugSessions()
+        activeSessions.value = response.data || []
     } catch (error) {
         console.error('Failed to load debug sessions:', error)
         showToast('Ошибка загрузки debug сессий', 'error')
@@ -385,18 +340,20 @@ const startDebugSession = async (taskId) => {
     try {
         debugActionLoading.value[taskId] = true
 
-        const response = await api.post(`/admin/debug/start/${taskId}`, {
-            device_type: deviceTypeFilter.value
-        })
+        const response = await api.startDebugSession(taskId, deviceTypeFilter.value)
 
         if (response.data.success) {
             showToast('Debug сессия запущена успешно', 'success')
             await loadTasks()
             await refreshSessions()
+
+            // Показать модальное окно с инструкциями
+            selectedTaskId.value = taskId
+            showVncModal.value = true
         }
     } catch (error) {
         console.error('Failed to start debug session:', error)
-        showToast('Ошибка запуска debug сессии', 'error')
+        showToast(error.response?.data?.detail || 'Ошибка запуска debug сессии', 'error')
     } finally {
         debugActionLoading.value[taskId] = false
     }
@@ -406,7 +363,7 @@ const stopDebugSession = async (taskId) => {
     try {
         debugActionLoading.value[taskId] = true
 
-        const response = await api.post(`/admin/debug/stop/${taskId}`)
+        const response = await api.stopDebugSession(taskId)
 
         if (response.data.success) {
             showToast('Debug сессия остановлена', 'success')
@@ -415,7 +372,7 @@ const stopDebugSession = async (taskId) => {
         }
     } catch (error) {
         console.error('Failed to stop debug session:', error)
-        showToast('Ошибка остановки debug сессии', 'error')
+        showToast(error.response?.data?.detail || 'Ошибка остановки debug сессии', 'error')
     } finally {
         debugActionLoading.value[taskId] = false
     }
@@ -477,7 +434,7 @@ const getTaskStatusClass = (status) => {
 
 const showToast = (message, type) => {
     console.log(`${type.toUpperCase()}: ${message}`)
-    // Здесь можно интегрировать с системой уведомлений
+    // Можно интегрировать с вашей системой уведомлений
 }
 
 // Lifecycle

@@ -208,7 +208,7 @@
 import {ref, watch} from 'vue'
 import {useToast} from '@/composables/useToast'
 import Modal from '@/components/ui/Modal.vue'
-import {api} from '@/api'
+import {api} from '@/api'  // ← Используем ваш API клиент
 
 interface Props {
     isOpen: boolean
@@ -230,7 +230,7 @@ const loadInstructions = async () => {
 
     try {
         loading.value = true
-        const response = await api.get(`/admin/debug/vnc-instructions/${props.taskId}`)
+        const response = await api.getVncInstructions(props.taskId)
         instructions.value = response.data
     } catch (error) {
         console.error('Failed to load VNC instructions:', error)
@@ -255,7 +255,7 @@ const testConnection = async () => {
         testingConnection.value = true
         connectionTestResult.value = null
 
-        const response = await api.get(`/admin/debug/session/${props.taskId}`)
+        const response = await api.getDebugSessionStatus(props.taskId)
 
         if (response.data.status === 'active') {
             connectionTestResult.value = {

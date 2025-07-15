@@ -1,44 +1,72 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
+    container_name: topflight_postgres
     environment:
+      # Создаем суперпользователя postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
       POSTGRES_DB: yandex_parser
-      POSTGRES_USER: parser_user
-      POSTGRES_PASSWORD: parser_password
+      # Настройки для правильной работы
+      POSTGRES_HOST_AUTH_METHOD: md5
+      POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=trust"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U parser_user -d yandex_parser"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d yandex_parser" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    command: >
+      postgres
+      -c listen_addresses='*'
+      -c max_connections=200
+      -c shared_buffers=128MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
 
   redis:
     image: redis:7-alpine
+    container_name: topflight_redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
       retries: 3
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
 
   adminer:
     image: adminer
+    container_name: topflight_adminer
     ports:
       - "8081:8080"
     environment:
       ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
+
+networks:
+  default:
+    name: topflight_network

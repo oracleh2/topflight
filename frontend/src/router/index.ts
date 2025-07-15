@@ -99,6 +99,12 @@ router.beforeEach(async (to, from, next) => {
         }
     }
 
+    // ← ДОБАВИТЬ ПРОВЕРКУ АДМИНСКИХ ПРАВ
+    if (to.meta.requiresAdmin && !authStore.isAdmin) {
+        next('/dashboard')
+        return
+    }
+
     next()
 })
 

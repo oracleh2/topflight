@@ -117,7 +117,7 @@
 import {ref, watch, onUnmounted} from 'vue'
 import {useToast} from '@/composables/useToast'
 import Modal from '@/components/ui/Modal.vue'
-import {api} from '@/api'
+import {api} from '@/api'  // ← Используем ваш API клиент
 
 interface Props {
     isOpen: boolean
@@ -145,36 +145,29 @@ const loadScreenshot = async () => {
         loading.value = true
         error.value = ''
 
-        // Добавляем timestamp для предотвращения кэширования
-        const timestamp = Date.now()
-        const response = await api.get(`/admin/debug/screenshot/${props.taskId}?t=${timestamp}`, {
-            responseType: 'blob'
-        })
+        const response = await api.getDebugScreenshot(props.taskId)
 
         // Создаем URL для blob
         const blob = new Blob([response.data], {type: 'image/png'})
+
+        // Очищаем предыдущий URL если есть
+        if (screenshotUrl.value) {
+            URL.revokeObjectURL(screenshotUrl.value)
+        }
+
         screenshotUrl.value = URL.createObjectURL(blob)
         screenshotTime.value = new Date()
 
     } catch (err: any) {
         console.error('Failed to load screenshot:', err)
         error.value = err.response?.data?.detail || 'Ошибка загрузки скриншота'
-        screenshotUrl.value = ''
     } finally {
         loading.value = false
     }
 }
 
 const refreshScreenshot = async () => {
-    if (refreshing.value) return
-
     refreshing.value = true
-
-    // Освобождаем предыдущий URL
-    if (screenshotUrl.value) {
-        URL.revokeObjectURL(screenshotUrl.value)
-    }
-
     await loadScreenshot()
     refreshing.value = false
 }
@@ -184,28 +177,33 @@ const downloadScreenshot = () => {
 
     const link = document.createElement('a')
     link.href = screenshotUrl.value
-    link.download = `debug_screenshot_${props.taskId}_${Date.now()}.png`
+    link.download = `debug-screenshot-${props.taskId}-${Date.now()}.png`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
 }
 
 const openInNewTab = () => {
-    if (!screenshotUrl.value) return
-    window.open(screenshotUrl.value, '_blank')
+    if (screenshotUrl.value) {
+        window.open(screenshotUrl.value, '_blank')
+    }
 }
 
-const onImageLoad = () => {
-    // Скриншот загружен успешно
+const toggleAutoRefresh = () => {
+    autoRefresh.value = !autoRefresh.value
+
+    if (autoRefresh.value) {
+        refreshTimer.value = setInterval(refreshScreenshot, refreshInterval.value)
+    } else {
+        if (refreshTimer.value) {
+            clearInterval(refreshTimer.value)
+            refreshTimer.value = null
+        }
+    }
 }
 
-const onImageError = () => {
-    error.value = 'Ошибка загрузки изображения'
-    screenshotUrl.value = ''
-}
-
-const formatTime = (date: Date) => {
-    return date.toLocaleString('ru-RU', {
+const formatTime = (timestamp: Date) => {
+    return timestamp.toLocaleString('ru-RU', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -215,47 +213,33 @@ const formatTime = (date: Date) => {
     })
 }
 
-const startAutoRefresh = () => {
-    if (refreshTimer.value) {
-        clearInterval(refreshTimer.value)
-    }
-
-    if (autoRefresh.value) {
-        refreshTimer.value = setInterval(() => {
-            refreshScreenshot()
-        }, refreshInterval.value)
-    }
-}
-
-const stopAutoRefresh = () => {
-    if (refreshTimer.value) {
-        clearInterval(refreshTimer.value)
-        refreshTimer.value = null
-    }
-}
-
 // Watch for modal open/close
 watch(() => props.isOpen, (newValue) => {
     if (newValue && props.taskId) {
         loadScreenshot()
     } else {
-        stopAutoRefresh()
-        error.value = ''
+        // Очищаем таймер при закрытии
+        if (refreshTimer.value) {
+            clearInterval(refreshTimer.value)
+            refreshTimer.value = null
+        }
+        autoRefresh.value = false
+
+        // Очищаем URL для освобождения памяти
         if (screenshotUrl.value) {
             URL.revokeObjectURL(screenshotUrl.value)
             screenshotUrl.value = ''
         }
-    }
-})
 
-// Watch auto-refresh settings
-watch([autoRefresh, refreshInterval], () => {
-    startAutoRefresh()
+        error.value = ''
+    }
 })
 
 // Cleanup on unmount
 onUnmounted(() => {
-    stopAutoRefresh()
+    if (refreshTimer.value) {
+        clearInterval(refreshTimer.value)
+    }
     if (screenshotUrl.value) {
         URL.revokeObjectURL(screenshotUrl.value)
     }

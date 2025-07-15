@@ -1,3 +1,4 @@
+// frontend/src/api/index.ts
 import axios, {type AxiosInstance} from 'axios'
 import {useAuthStore} from '@/stores/auth'
 
@@ -270,6 +271,47 @@ class ApiClient {
             device_type: deviceType,
             ...(profileId && {profile_id: profileId}),
             priority
+        })
+    }
+
+    // Admin Debug endpoints
+    async getAdminTasks(limit = 50, offset = 0, status?: string) {
+        return this.client.get('/admin/debug/tasks', {  // ← ИЗМЕНИТЬ с /admin/tasks на /admin/debug/tasks
+            params: {limit, offset, ...(status && {status})}
+        })
+    }
+
+    async getDebugSessions() {
+        return this.client.get('/admin/debug/sessions')
+    }
+
+    async startDebugSession(taskId: string, deviceType: string = 'desktop') {
+        return this.client.post(`/admin/debug/start/${taskId}`, {
+            device_type: deviceType
+        })
+    }
+
+    async stopDebugSession(taskId: string) {
+        return this.client.post(`/admin/debug/stop/${taskId}`)
+    }
+
+    async getVncInstructions(taskId: string) {
+        return this.client.get(`/admin/debug/vnc-instructions/${taskId}`)
+    }
+
+    async getDebugSessionStatus(taskId: string) {
+        return this.client.get(`/admin/debug/session/${taskId}`)
+    }
+
+    async getDebugScreenshot(taskId: string) {
+        return this.client.get(`/admin/debug/screenshot/${taskId}`, {
+            responseType: 'blob'
+        })
+    }
+
+    async getDebugSessionLogs(taskId: string, limit = 100) {
+        return this.client.get(`/admin/debug/logs/${taskId}`, {
+            params: {limit}
         })
     }
 }

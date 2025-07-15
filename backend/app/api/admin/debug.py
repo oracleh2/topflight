@@ -1,8 +1,8 @@
 # backend/app/api/admin/debug.py
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import structlog
@@ -16,6 +16,7 @@ from app.api.auth import (
     get_current_admin_user,
     log_admin_action,
 )  # Импортируем админ проверку
+
 
 logger = structlog.get_logger(__name__)
 
@@ -39,13 +40,14 @@ async def start_task_debugging(
 
         if not task:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+                status_code=404,
+                detail="Task not found",  # было: status.HTTP_404_NOT_FOUND
             )
 
         # Проверяем, что задача в подходящем статусе
         if task.status not in ["pending", "running", "failed"]:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,  # было: status.HTTP_400_BAD_REQUEST
                 detail=f"Cannot debug task with status: {task.status}",
             )
 
@@ -85,7 +87,7 @@ async def start_task_debugging(
     except Exception as e:
         logger.error("Failed to start task debugging", task_id=task_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to start debugging: {str(e)}",
         )
 
@@ -104,7 +106,8 @@ async def stop_task_debugging(
 
         if not task:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+                status_code=404,
+                detail="Task not found",  # было: status.HTTP_404_NOT_FOUND
             )
 
         # Останавливаем VNC сессию
@@ -137,7 +140,7 @@ async def stop_task_debugging(
     except Exception as e:
         logger.error("Failed to stop task debugging", task_id=task_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to stop debugging: {str(e)}",
         )
 
@@ -163,7 +166,7 @@ async def get_active_debug_sessions(
     except Exception as e:
         logger.error("Failed to get active debug sessions", error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to get debug sessions: {str(e)}",
         )
 
@@ -179,7 +182,8 @@ async def get_debug_session_info(
 
         if not session_info:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Debug session not found"
+                status_code=404,
+                detail="Debug session not found",  # было: status.HTTP_404_NOT_FOUND
             )
 
         return session_info
@@ -189,7 +193,7 @@ async def get_debug_session_info(
     except Exception as e:
         logger.error("Failed to get debug session info", task_id=task_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to get session info: {str(e)}",
         )
 
@@ -205,7 +209,7 @@ async def get_task_screenshot(
 
         if not screenshot_data:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=404,  # было: status.HTTP_404_NOT_FOUND
                 detail="Screenshot not available or debug session not found",
             )
 
@@ -225,7 +229,7 @@ async def get_task_screenshot(
     except Exception as e:
         logger.error("Failed to get task screenshot", task_id=task_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to get screenshot: {str(e)}",
         )
 
@@ -247,7 +251,8 @@ async def restart_task_with_debug(
 
         if not task:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+                status_code=404,
+                detail="Task not found",  # было: status.HTTP_404_NOT_FOUND
             )
 
         # Перезапускаем с дебагом
@@ -284,7 +289,7 @@ async def restart_task_with_debug(
     except Exception as e:
         logger.error("Failed to restart task with debug", task_id=task_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to restart with debug: {str(e)}",
         )
 
@@ -300,7 +305,8 @@ async def get_vnc_connection_instructions(
 
         if not task_session:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Debug session not found"
+                status_code=404,
+                detail="Debug session not found",  # было: status.HTTP_404_NOT_FOUND
             )
 
         vnc_port = task_session["vnc_port"]
@@ -350,8 +356,115 @@ async def get_vnc_connection_instructions(
     except Exception as e:
         logger.error("Failed to get VNC instructions", task_id=task_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,  # было: status.HTTP_500_INTERNAL_SERVER_ERROR
             detail=f"Failed to get VNC instructions: {str(e)}",
+        )
+
+
+@router.get("/tasks")
+async def get_admin_tasks(
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(None, description="Фильтр по статусу задачи"),
+    current_admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+) -> Dict[str, Any]:
+    """Получает список всех задач для администратора"""
+    try:
+        logger.info(
+            "Getting admin tasks",
+            limit=limit,
+            offset=offset,
+            status=status,
+            admin_id=str(current_admin.id),
+        )
+
+        # Строим запрос для получения задач
+        query = select(Task).order_by(Task.created_at.desc())
+
+        # Добавляем фильтр по статусу если указан
+        if status:
+            query = query.where(Task.status == status)
+
+        # Добавляем пагинацию
+        query = query.limit(limit).offset(offset)
+
+        # Выполняем запрос
+        result = await session.execute(query)
+        tasks = result.scalars().all()
+
+        logger.info(f"Found {len(tasks)} tasks")
+
+        # Получаем общее количество задач
+        count_query = select(func.count(Task.id))
+        if status:
+            count_query = count_query.where(Task.status == status)
+
+        total_result = await session.execute(count_query)
+        total_count = total_result.scalar()
+
+        logger.info(f"Total tasks count: {total_count}")
+
+        # Преобразуем задачи в словари
+        tasks_data = []
+        for i, task in enumerate(tasks):
+            try:
+                # Безопасно обрабатываем поля которые могут быть None
+                task_data = {
+                    "task_id": str(task.id),
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "created_at": (
+                        task.created_at.isoformat() if task.created_at else None
+                    ),
+                    "updated_at": (
+                        task.updated_at.isoformat() if task.updated_at else None
+                    ),
+                    "started_at": (
+                        task.started_at.isoformat() if task.started_at else None
+                    ),
+                    "completed_at": (
+                        task.completed_at.isoformat() if task.completed_at else None
+                    ),
+                    "user_id": str(task.user_id) if task.user_id else None,
+                    "parameters": task.parameters or {},
+                    "result": task.result,
+                    "error_message": task.error_message,
+                    # УБИРАЕМ retry_count - его нет в модели
+                    "priority": task.priority or 0,
+                    "profile_id": str(task.profile_id) if task.profile_id else None,
+                    "worker_id": task.worker_id,
+                }
+                tasks_data.append(task_data)
+                logger.info(f"Processed task {i+1}: {task_data['task_id']}")
+            except Exception as task_error:
+                logger.error(
+                    f"Error processing task {i}: {str(task_error)}", exc_info=True
+                )
+                continue
+
+        logger.info(
+            "Admin tasks retrieved",
+            count=len(tasks_data),
+            total=total_count,
+            admin_id=str(current_admin.id),
+        )
+
+        return {
+            "tasks": tasks_data,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total_count,
+        }
+
+    except Exception as e:
+        logger.error("Failed to get admin tasks", error=str(e), exc_info=True)
+
+        # ИСПРАВЛЯЕМ: используем HTTPException правильно
+        raise HTTPException(
+            status_code=500,  # Используем числовое значение вместо status.HTTP_500_INTERNAL_SERVER_ERROR
+            detail=f"Failed to get tasks: {str(e)}",
         )
 
 
