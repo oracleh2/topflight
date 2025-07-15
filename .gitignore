@@ -49,3 +49,6 @@ Thumbs.db
 profiles_data/
 backup/
 temp/
+
+data/
+data/*

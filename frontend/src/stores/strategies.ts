@@ -3,14 +3,17 @@ import {defineStore} from 'pinia'
 import {ref, computed} from 'vue'
 import {api} from '@/api'
 
-export interface StrategyTemplate {
+export interface Strategy {
     id: string
+    user_id: string
+    template_id?: string
     name: string
-    description?: string
-    strategy_type: 'warmup' | 'position_check'
+    strategy_type: 'warmup' | 'position_check' | 'profile_nurture'
     config: Record<string, any>
-    is_system: boolean
     created_at: string
+    updated_at: string
+    is_active: boolean
+    data_sources: DataSource[]
 }
 
 export interface DataSource {
@@ -24,24 +27,21 @@ export interface DataSource {
     created_at: string
 }
 
-export interface UserStrategy {
+export interface StrategyTemplate {
     id: string
-    user_id: string
-    template_id?: string
     name: string
-    strategy_type: 'warmup' | 'position_check'
+    description?: string
+    strategy_type: 'warmup' | 'position_check' | 'profile_nurture'
     config: Record<string, any>
+    is_system: boolean
     created_at: string
-    updated_at: string
-    is_active: boolean
-    data_sources: DataSource[]
 }
 
 export interface StrategyExecution {
     id: string
     strategy_id: string
     task_id?: string
-    execution_type: 'warmup' | 'position_check'
+    execution_type: 'warmup' | 'position_check' | 'profile_nurture'
     profile_id?: string
     parameters?: Record<string, any>
     result?: Record<string, any>
@@ -52,14 +52,13 @@ export interface StrategyExecution {
 }
 
 export const useStrategiesStore = defineStore('strategies', () => {
-    // State
+    const strategies = ref<Strategy[]>([])
     const templates = ref<StrategyTemplate[]>([])
-    const strategies = ref<UserStrategy[]>([])
     const executions = ref<StrategyExecution[]>([])
     const loading = ref(false)
     const error = ref<string | null>(null)
 
-    // Computed
+    // Computed getters
     const warmupStrategies = computed(() =>
         strategies.value.filter(s => s.strategy_type === 'warmup')
     )
@@ -76,7 +75,77 @@ export const useStrategiesStore = defineStore('strategies', () => {
         templates.value.filter(t => t.strategy_type === 'position_check')
     )
 
-    // Actions
+    const profileNurtureStrategies = computed(() =>
+        strategies.value.filter(s => s.strategy_type === 'profile_nurture')
+    )
+
+    const profileNurtureTemplates = computed(() =>
+        templates.value.filter(t => t.strategy_type === 'profile_nurture')
+    )
+
+    // Default configurations
+    function getDefaultWarmupConfig() {
+        return {
+            type: 'mixed',
+            proportions: {
+                direct_visits: 30,
+                search_visits: 70
+            },
+            min_sites: 3,
+            max_sites: 7,
+            session_timeout: 15,
+            yandex_domain: 'yandex.ru',
+            device_type: 'desktop'
+        }
+    }
+
+    function getDefaultPositionCheckConfig() {
+        return {
+            check_frequency: 'daily',
+            yandex_domain: 'yandex.ru',
+            device_type: 'desktop',
+            max_pages: 10,
+            custom_schedule: null,
+            behavior: {
+                random_delays: true,
+                scroll_pages: true,
+                human_like_clicks: true
+            }
+        }
+    }
+
+    function getDefaultProfileNurtureConfig() {
+        return {
+            nurture_type: 'search_based',
+            target_cookies: {
+                min: 50,
+                max: 100
+            },
+            session_config: {
+                timeout_per_site: 15,
+                min_timeout: 10,
+                max_timeout: 30
+            },
+            search_engines: ['yandex.ru'],
+            queries_source: {
+                type: 'manual_input',
+                refresh_on_each_cycle: false
+            },
+            behavior: {
+                return_to_search: true,
+                close_browser_after_cycle: false,
+                emulate_human_actions: true,
+                scroll_pages: true,
+                random_clicks: true
+            },
+            proportions: {
+                search_visits: 70,
+                direct_visits: 30
+            }
+        }
+    }
+
+    // API methods
     async function fetchStrategyTemplates(strategyType?: string) {
         try {
             loading.value = true
@@ -112,7 +181,7 @@ export const useStrategiesStore = defineStore('strategies', () => {
     async function createStrategy(strategyData: {
         template_id?: string
         name: string
-        strategy_type: 'warmup' | 'position_check'
+        strategy_type: 'warmup' | 'position_check' | 'profile_nurture'
         config: Record<string, any>
     }) {
         try {
@@ -142,9 +211,10 @@ export const useStrategiesStore = defineStore('strategies', () => {
 
             const response = await api.put(`/strategies/${strategyId}`, updateData)
 
+            // Обновляем стратегию в локальном состоянии
             const index = strategies.value.findIndex(s => s.id === strategyId)
             if (index !== -1) {
-                strategies.value[index] = response.data
+                strategies.value[index] = {...strategies.value[index], ...response.data}
             }
 
             return response.data
@@ -163,42 +233,16 @@ export const useStrategiesStore = defineStore('strategies', () => {
 
             await api.delete(`/strategies/${strategyId}`)
 
-            strategies.value = strategies.value.filter(s => s.id !== strategyId)
+            // Удаляем стратегию из локального состояния
+            const index = strategies.value.findIndex(s => s.id === strategyId)
+            if (index !== -1) {
+                strategies.value.splice(index, 1)
+            }
         } catch (err: any) {
             error.value = err.response?.data?.detail || 'Ошибка удаления стратегии'
             throw err
         } finally {
             loading.value = false
-        }
-    }
-
-    async function duplicateStrategy(strategyId: string, newName: string) {
-        try {
-            const strategy = strategies.value.find(s => s.id === strategyId)
-            if (!strategy) {
-                throw new Error('Стратегия не найдена')
-            }
-
-            const newStrategy = await createStrategy({
-                name: newName,
-                strategy_type: strategy.strategy_type,
-                config: {...strategy.config}
-            })
-
-            // Копируем источники данных
-            for (const dataSource of strategy.data_sources) {
-                await addDataSource(newStrategy.id, {
-                    source_type: dataSource.source_type,
-                    source_url: dataSource.source_url,
-                    data_content: dataSource.data_content
-                })
-            }
-
-            await fetchStrategies() // Перезагружаем для получения актуальных данных
-            return newStrategy
-        } catch (err: any) {
-            error.value = err.response?.data?.detail || 'Ошибка дублирования стратегии'
-            throw err
         }
     }
 
@@ -281,6 +325,7 @@ export const useStrategiesStore = defineStore('strategies', () => {
         domain_id?: string
         warmup_strategy_id?: string
         position_check_strategy_id?: string
+        profile_nurture_strategy_id?: string
     }) {
         try {
             const response = await api.post('/strategies/project-strategies', assignment)
@@ -302,55 +347,333 @@ export const useStrategiesStore = defineStore('strategies', () => {
         }
     }
 
-    // Strategy configuration helpers
-    function getDefaultWarmupConfig() {
+    // Profile Nurture specific methods
+    async function getAvailableSearchEngines() {
+        try {
+            const response = await api.get('/strategies/profile-nurture/search-engines')
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка получения поисковых систем'
+            throw err
+        }
+    }
+
+    async function validateProfileNurtureConfig(config: Record<string, any>) {
+        try {
+            const response = await api.post('/strategies/profile-nurture/validate-config', config)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка валидации конфигурации'
+            throw err
+        }
+    }
+
+    async function testQuerySource(strategyId: string, sourceData: {
+        source_type: string
+        source_url?: string
+        data_content?: string
+    }) {
+        try {
+            const response = await api.post(`/strategies/${strategyId}/test-query-source`, sourceData)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка тестирования источника'
+            throw err
+        }
+    }
+
+    async function getNurtureProgress(strategyId: string) {
+        try {
+            const response = await api.get(`/strategies/${strategyId}/nurture-progress`)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка получения прогресса нагула'
+            throw err
+        }
+    }
+
+    async function getDefaultConfigs() {
+        try {
+            const response = await api.get('/strategies/default-configs')
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка получения конфигураций по умолчанию'
+            throw err
+        }
+    }
+
+    // Helper methods for strategy type display
+    function getStrategyTypeLabel(type: string): string {
+        switch (type) {
+            case 'warmup':
+                return 'Прогрев'
+            case 'position_check':
+                return 'Проверка позиций'
+            case 'profile_nurture':
+                return 'Нагул профиля'
+            default:
+                return type
+        }
+    }
+
+    function getStrategyTypeDescription(type: string): string {
+        switch (type) {
+            case 'warmup':
+                return 'Прогрев сайтов перед проверкой позиций'
+            case 'position_check':
+                return 'Проверка позиций сайтов в поиске'
+            case 'profile_nurture':
+                return 'Нагул профилей браузера для обхода детекции'
+            default:
+                return ''
+        }
+    }
+
+    function getStrategyTypeIcon(type: string): string {
+        switch (type) {
+            case 'warmup':
+                return 'BeakerIcon'
+            case 'position_check':
+                return 'ChartBarIcon'
+            case 'profile_nurture':
+                return 'UserIcon'
+            default:
+                return 'CogIcon'
+        }
+    }
+
+    function getNurtureTypeLabel(type: string): string {
+        switch (type) {
+            case 'search_based':
+                return 'Через поиск'
+            case 'direct_visits':
+                return 'Прямые заходы'
+            case 'mixed_nurture':
+                return 'Смешанный'
+            default:
+                return type
+        }
+    }
+
+    // Data import methods for profile nurture
+    async function importDataFromUrl(url: string) {
+        try {
+            const response = await api.post('/strategies/import/url', {url})
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка импорта данных по URL'
+            throw err
+        }
+    }
+
+    async function importDataFromGoogleSheets(url: string) {
+        try {
+            const response = await api.post('/strategies/import/google-sheets', {url})
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка импорта данных из Google Таблиц'
+            throw err
+        }
+    }
+
+    async function importDataFromGoogleDocs(url: string) {
+        try {
+            const response = await api.post('/strategies/import/google-docs', {url})
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка импорта данных из Google Документов'
+            throw err
+        }
+    }
+
+    async function validateDataSource(sourceData: {
+        source_type: string
+        source_url?: string
+        data_content?: string
+    }) {
+        try {
+            const response = await api.post('/strategies/validate-data-source', sourceData)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка валидации источника данных'
+            throw err
+        }
+    }
+
+    // File processing methods
+    async function processTextFile(file: File) {
+        try {
+            const content = await readFileAsText(file)
+            return {
+                type: 'manual_input',
+                data_content: content,
+                items_count: content.split('\n').filter(line => line.trim()).length
+            }
+        } catch (err: any) {
+            error.value = 'Ошибка чтения текстового файла'
+            throw err
+        }
+    }
+
+    async function processCsvFile(file: File) {
+        try {
+            const content = await readFileAsText(file)
+            // Простая обработка CSV - берем первую колонку
+            const lines = content.split('\n')
+            const processedLines = lines.map(line => {
+                const cells = line.split(',')
+                return cells[0]?.trim() || ''
+            }).filter(line => line)
+
+            return {
+                type: 'manual_input',
+                data_content: processedLines.join('\n'),
+                items_count: processedLines.length
+            }
+        } catch (err: any) {
+            error.value = 'Ошибка чтения CSV файла'
+            throw err
+        }
+    }
+
+    function readFileAsText(file: File): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = (e) => {
+                const content = e.target?.result as string
+                resolve(content)
+            }
+            reader.onerror = reject
+            reader.readAsText(file)
+        })
+    }
+
+    function getDataSourceStats(source: any) {
+        if (!source.data_content) return {count: 0, preview: []}
+
+        const lines = source.data_content.split('\n').filter(line => line.trim())
         return {
-            type: 'mixed',
+            count: lines.length,
+            preview: lines.slice(0, 5),
+            isEmpty: lines.length === 0,
+            isMinimal: lines.length < 10,
+            isGood: lines.length >= 10
+        }
+    }
+
+    function getEnhancedProfileNurtureConfig() {
+        return {
+            nurture_type: 'search_based',
+            target_cookies: {
+                min: 50,
+                max: 100
+            },
+            session_config: {
+                timeout_per_site: 15,
+                min_timeout: 10,
+                max_timeout: 30
+            },
+            search_engines: ['yandex.ru'],
+            queries_source: {
+                type: 'manual_input',
+                data_content: '',
+                source_url: '',
+                refresh_on_each_cycle: false
+            },
+            behavior: {
+                return_to_search: true,
+                close_browser_after_cycle: false,
+                emulate_human_actions: true,
+                scroll_pages: true,
+                random_clicks: true
+            },
             proportions: {
-                direct_visits: 5,
-                search_visits: 1
+                search_visits: 70,
+                direct_visits: 30
             },
-            search_config: {
-                yandex_domains: ['yandex.ru'],
-                keywords_per_session: {min: 1, max: 3},
-                click_probability: 0.7,
-                random_result_click: true
-            },
-            direct_config: {
-                sites_per_session: {min: 3, max: 7},
-                time_per_site: {min: 10, max: 45},
-                scroll_probability: 0.8,
-                click_probability: 0.3
-            },
-            general: {
-                delay_between_actions: {min: 2, max: 8},
-                user_agent_rotation: true,
-                cookie_retention: true
+            direct_sites_source: {
+                type: 'manual_input',
+                data_content: '',
+                source_url: '',
+                refresh_on_each_cycle: false
             }
         }
     }
 
-    function getDefaultPositionCheckConfig() {
-        return {
-            check_frequency: 'daily',
-            search_config: {
-                pages_to_check: 10,
-                yandex_domain: 'yandex.ru',
-                device_types: ['desktop'],
-                regions: ['213']
-            },
-            behavior: {
-                scroll_serp: true,
-                click_competitors: 0.1,
-                time_on_serp: {min: 5, max: 15}
+    function cleanProfileNurtureConfig(config) {
+        const cleaned = {...config}
+
+        // Удаляем поля, которые не нужны для определенных типов
+        if (cleaned.nurture_type === 'search_based') {
+            delete cleaned.direct_sites_source
+            delete cleaned.proportions
+        } else if (cleaned.nurture_type === 'direct_visits') {
+            delete cleaned.search_engines
+            delete cleaned.proportions
+            // Очищаем queries_source, но оставляем пустую структуру
+            cleaned.queries_source = {
+                type: 'manual_input',
+                data_content: '',
+                source_url: '',
+                refresh_on_each_cycle: false
             }
+        }
+
+        return cleaned
+    }
+
+    function validateQueriesSource(source) {
+        const errors = []
+
+        if (!source) {
+            errors.push('Источник запросов обязателен')
+            return errors
+        }
+
+        if (source.type === 'manual_input' && !source.data_content?.trim()) {
+            errors.push('Поисковые запросы не могут быть пустыми')
+        }
+
+        if (['url_import', 'google_sheets', 'google_docs'].includes(source.type) && !source.source_url?.trim()) {
+            errors.push('URL источника запросов обязателен')
+        }
+
+        return errors
+    }
+
+    function validateDirectSitesSource(source) {
+        const errors = []
+
+        if (!source) {
+            errors.push('Источник сайтов обязателен')
+            return errors
+        }
+
+        if (source.type === 'manual_input' && !source.data_content?.trim()) {
+            errors.push('Список сайтов не может быть пустым')
+        }
+
+        if (['url_import', 'google_sheets', 'google_docs'].includes(source.type) && !source.source_url?.trim()) {
+            errors.push('URL источника сайтов обязателен')
+        }
+
+        return errors
+    }
+
+    async function createTemporaryStrategy(strategyData) {
+        try {
+            const response = await api.post('/strategies/temporary', strategyData)
+            return response.data
+        } catch (err) {
+            error.value = err.response?.data?.detail || 'Ошибка создания временной стратегии'
+            throw err
         }
     }
 
     return {
         // State
-        templates,
         strategies,
+        templates,
         executions,
         loading,
         error,
@@ -358,16 +681,17 @@ export const useStrategiesStore = defineStore('strategies', () => {
         // Computed
         warmupStrategies,
         positionCheckStrategies,
+        profileNurtureStrategies,
         warmupTemplates,
         positionCheckTemplates,
+        profileNurtureTemplates,
 
-        // Actions
+        // Methods
         fetchStrategyTemplates,
         fetchStrategies,
         createStrategy,
         updateStrategy,
         deleteStrategy,
-        duplicateStrategy,
         addDataSource,
         uploadDataFile,
         executeStrategy,
@@ -375,8 +699,38 @@ export const useStrategiesStore = defineStore('strategies', () => {
         assignStrategiesToProject,
         getProjectStrategies,
 
-        // Helpers
+        // Profile Nurture specific
+        getAvailableSearchEngines,
+        validateProfileNurtureConfig,
+        testQuerySource,
+        getNurtureProgress,
+        getDefaultConfigs,
+
+        // Default configs
         getDefaultWarmupConfig,
-        getDefaultPositionCheckConfig
+        getDefaultPositionCheckConfig,
+        getDefaultProfileNurtureConfig,
+
+        // Helper methods
+        getStrategyTypeLabel,
+        getStrategyTypeDescription,
+        getStrategyTypeIcon,
+        getNurtureTypeLabel,
+
+        importDataFromUrl,
+        importDataFromGoogleSheets,
+        importDataFromGoogleDocs,
+        validateDataSource,
+        createTemporaryStrategy,
+        processTextFile,
+        processCsvFile,
+        readFileAsText,
+        getEnhancedProfileNurtureConfig,
+        validateQueriesSource,
+        validateDirectSitesSource,
+        getDataSourceStats,
+
+        cleanProfileNurtureConfig
     }
 })
+

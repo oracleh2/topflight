@@ -217,6 +217,77 @@ async def get_user_strategies(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+@router.post("/temporary")
+async def create_temporary_strategy(
+    strategy_data: dict,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Создание временной стратегии (для предпросмотра/валидации)"""
+    try:
+        from datetime import datetime
+
+        # Валидируем данные стратегии
+        strategy_type = strategy_data.get("strategy_type")
+        config = strategy_data.get("config", {})
+
+        errors = []
+        warnings = []
+
+        # Валидация в зависимости от типа стратегии
+        if strategy_type == "warmup":
+            try:
+                validated_config = validate_warmup_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+                validated_config = config
+        elif strategy_type == "position_check":
+            try:
+                validated_config = validate_position_check_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+                validated_config = config
+        elif strategy_type == "profile_nurture":
+            try:
+                validated_config = validate_profile_nurture_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+                validated_config = config
+        else:
+            errors.append(f"Неизвестный тип стратегии: {strategy_type}")
+            validated_config = config
+
+        # Возвращаем временную стратегию с валидированной конфигурацией
+        # НЕ сохраняем в базу данных
+        temporary_strategy = {
+            "id": f"temp_{strategy_type}_{int(datetime.now().timestamp())}",
+            "user_id": str(current_user.id),
+            "template_id": strategy_data.get("template_id"),
+            "name": strategy_data.get("name", f"Временная стратегия {strategy_type}"),
+            "strategy_type": strategy_type,
+            "config": validated_config,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "is_active": True,
+            "is_temporary": True,
+            "data_sources": [],
+            "validation": {
+                "errors": errors,
+                "warnings": warnings,
+                "is_valid": len(errors) == 0,
+            },
+        }
+
+        return temporary_strategy
+
+    except Exception as e:
+        print(f"Error in create_temporary_strategy: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, detail=f"Ошибка создания временной стратегии: {str(e)}"
+        )
+
+
 @router.post("/", response_model=UserStrategyResponse)
 async def create_user_strategy(
     strategy_data: UserStrategyCreate,

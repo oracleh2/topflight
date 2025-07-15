@@ -67,7 +67,13 @@ class StrategyService:
         self, user_id: str, strategy_type: Optional[str] = None
     ) -> List[Dict]:
         """Получение всех стратегий пользователя"""
-        query = select(UserStrategy).where(UserStrategy.user_id == user_id)
+
+        query = select(UserStrategy).where(
+            and_(
+                UserStrategy.user_id == user_id,
+                UserStrategy.is_active == True,
+            )
+        )
 
         if strategy_type:
             query = query.where(UserStrategy.strategy_type == strategy_type)

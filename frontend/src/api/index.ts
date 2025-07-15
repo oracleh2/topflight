@@ -413,6 +413,202 @@ class ApiClient {
             params: {limit}
         })
     }
+
+    // Strategy data import methods
+    async importDataFromUrl(url: string) {
+        return this.client.post('/strategies/import/url', {url})
+    }
+
+    async importDataFromGoogleSheets(url: string) {
+        return this.client.post('/strategies/import/google-sheets', {url})
+    }
+
+    async importDataFromGoogleDocs(url: string) {
+        return this.client.post('/strategies/import/google-docs', {url})
+    }
+
+    async validateDataSource(sourceData: {
+        source_type: string
+        source_url?: string
+        data_content?: string
+    }) {
+        return this.client.post('/strategies/validate-data-source', sourceData)
+    }
+
+    // Strategy templates and execution methods
+    async getStrategyTemplates(strategyType?: string) {
+        const params = strategyType ? {strategy_type: strategyType} : {}
+        return this.client.get('/strategies/templates', {params})
+    }
+
+    async createStrategy(strategyData: {
+        template_id?: string
+        name: string
+        strategy_type: 'warmup' | 'position_check' | 'profile_nurture'
+        config: Record<string, any>
+    }) {
+        return this.client.post('/strategies', strategyData)
+    }
+
+    async createTemporaryStrategy(strategyData: {
+        name: string
+        strategy_type: 'warmup' | 'position_check' | 'profile_nurture'
+        config: Record<string, any>
+        temporary?: boolean
+    }) {
+        return this.client.post('/strategies/temporary', {...strategyData, temporary: true})
+    }
+
+    async getStrategies(strategyType?: string) {
+        const params = strategyType ? {strategy_type: strategyType} : {}
+        return this.client.get('/strategies', {params})
+    }
+
+    async updateStrategy(strategyId: string, updateData: {
+        name?: string
+        config?: Record<string, any>
+        is_active?: boolean
+    }) {
+        return this.client.put(`/strategies/${strategyId}`, updateData)
+    }
+
+    async deleteStrategy(strategyId: string) {
+        return this.client.delete(`/strategies/${strategyId}`)
+    }
+
+    async executeStrategy(strategyId: string, executionParams: Record<string, any> = {}) {
+        return this.client.post(`/strategies/${strategyId}/execute`, {
+            execution_params: executionParams
+        })
+    }
+
+    // Profile nurture specific methods
+    async getAvailableSearchEngines() {
+        return this.client.get('/strategies/profile-nurture/search-engines')
+    }
+
+    async validateProfileNurtureConfig(config: Record<string, any>) {
+        return this.client.post('/strategies/profile-nurture/validate-config', config)
+    }
+
+    async testQuerySource(strategyId: string, sourceData: {
+        source_type: string
+        source_url?: string
+        data_content?: string
+    }) {
+        return this.client.post(`/strategies/${strategyId}/test-query-source`, sourceData)
+    }
+
+    async getNurtureProgress(strategyId: string) {
+        return this.client.get(`/strategies/${strategyId}/nurture-progress`)
+    }
+
+    async getStrategyExecutions(strategyId?: string) {
+        const params = strategyId ? {strategy_id: strategyId} : {}
+        return this.client.get('/strategies/executions', {params})
+    }
+
+    // Data source management
+    async addDataSource(strategyId: string, sourceData: {
+        source_type: string
+        source_url?: string
+        data_content?: string
+    }) {
+        return this.client.post(`/strategies/${strategyId}/data-sources`, sourceData)
+    }
+
+    async uploadDataFile(strategyId: string, file: File) {
+        const formData = new FormData()
+        formData.append('file', file)
+        return this.client.post(`/strategies/${strategyId}/data-sources/upload-file`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data'
+            }
+        })
+    }
+
+    async getDataSourcePreview(sourceData: {
+        source_type: string
+        source_url?: string
+        data_content?: string
+    }) {
+        return this.client.post('/strategies/data-sources/preview', sourceData)
+    }
+
+    // Project strategy assignment
+    async assignStrategiesToProject(assignment: {
+        domain_id?: string
+        warmup_strategy_id?: string
+        position_check_strategy_id?: string
+        profile_nurture_strategy_id?: string
+    }) {
+        return this.client.post('/strategies/project-strategies', assignment)
+    }
+
+    async getProjectStrategies(domainId?: string) {
+        const params = domainId ? {domain_id: domainId} : {}
+        return this.client.get('/strategies/project-strategies', {params})
+    }
+
+    async updateProjectStrategy(assignmentId: string, updateData: {
+        warmup_strategy_id?: string
+        position_check_strategy_id?: string
+        profile_nurture_strategy_id?: string
+    }) {
+        return this.client.put(`/strategies/project-strategies/${assignmentId}`, updateData)
+    }
+
+    async deleteProjectStrategy(assignmentId: string) {
+        return this.client.delete(`/strategies/project-strategies/${assignmentId}`)
+    }
+
+    // Strategy analytics and reporting
+    async getStrategyAnalytics(strategyIds: string[], dateFrom?: string, dateTo?: string) {
+        return this.client.post('/strategies/analytics', {
+            strategy_ids: strategyIds,
+            date_from: dateFrom,
+            date_to: dateTo
+        })
+    }
+
+    async getStrategyStats(strategyId: string) {
+        return this.client.get(`/strategies/${strategyId}/stats`)
+    }
+
+    async getStrategyExecutionHistory(strategyId: string, limit = 50, offset = 0) {
+        return this.client.get(`/strategies/${strategyId}/executions`, {
+            params: {limit, offset}
+        })
+    }
+
+    // Default configurations
+    async getDefaultConfigs() {
+        return this.client.get('/strategies/default-configs')
+    }
+
+    async getStrategyDefaults(strategyType: string) {
+        return this.client.get(`/strategies/defaults/${strategyType}`)
+    }
+
+    // Validation and testing
+    async validateStrategyConfig(strategyType: string, config: Record<string, any>) {
+        return this.client.post('/strategies/validate-config', {
+            strategy_type: strategyType,
+            config
+        })
+    }
+
+    async testUrlEndpoint(url: string) {
+        return this.client.post('/strategies/test-url-endpoint', {url})
+    }
+
+    async testGoogleSheetsAccess(url: string) {
+        return this.client.post('/strategies/test-google-sheets', {url})
+    }
+
+    async testGoogleDocsAccess(url: string) {
+        return this.client.post('/strategies/test-google-docs', {url})
+    }
 }
 
 export const api = new ApiClient()

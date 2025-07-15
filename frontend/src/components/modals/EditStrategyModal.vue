@@ -1,7 +1,7 @@
 <!-- frontend/src/components/modals/EditStrategyModal.vue -->
 <template>
     <TransitionRoot as="template" :show="isOpen">
-        <Dialog as="div" class="relative z-10" @close="$emit('close')">
+        <Dialog as="div" class="relative z-50" @close="$emit('close')">
             <TransitionChild
                 as="template"
                 enter="ease-out duration-300"
@@ -27,321 +27,117 @@
                         leave-to="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
                     >
                         <DialogPanel
-                            class="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:p-6">
+                            class="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-4xl sm:p-6">
                             <form @submit.prevent="handleSubmit">
-                                <div>
+                                <div class="sm:flex sm:items-start">
                                     <div
-                                        class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary-100">
-                                        <PencilIcon class="h-6 w-6 text-primary-600"
-                                                    aria-hidden="true"/>
+                                        class="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-primary-100 sm:mx-0 sm:h-10 sm:w-10">
+                                        <component
+                                            :is="getStrategyIcon()"
+                                            class="h-6 w-6 text-primary-600"
+                                            aria-hidden="true"
+                                        />
                                     </div>
-                                    <div class="mt-3 text-center sm:mt-5">
+                                    <div
+                                        class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left w-full">
                                         <DialogTitle as="h3"
                                                      class="text-base font-semibold leading-6 text-gray-900">
                                             Редактировать стратегию {{ strategyTypeLabel }}
                                         </DialogTitle>
                                         <div class="mt-2">
                                             <p class="text-sm text-gray-500">
-                                                Настройте стратегию для {{
-                                                    strategy?.strategy_type === 'warmup' ? 'прогрева профилей' : 'проверки позиций'
-                                                }}
+                                                Настройте параметры стратегии для
+                                                {{ strategyTypeDescription }}
                                             </p>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="mt-6 space-y-6">
-                                    <!-- Название стратегии -->
-                                    <div>
-                                        <label for="strategy-name"
-                                               class="block text-sm font-medium text-gray-700 mb-2">
-                                            Название стратегии *
-                                        </label>
-                                        <input
-                                            id="strategy-name"
-                                            v-model="form.name"
-                                            type="text"
-                                            required
-                                            maxlength="255"
-                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                            placeholder="Введите название стратегии"
-                                        />
-                                    </div>
-
-                                    <!-- Статус стратегии -->
-                                    <div>
-                                        <label class="flex items-center">
-                                            <input
-                                                v-model="form.is_active"
-                                                type="checkbox"
-                                                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                            />
-                                            <span class="ml-2 text-sm text-gray-700">Активная стратегия</span>
-                                        </label>
-                                    </div>
-
-                                    <!-- Конфигурация стратегии прогрева -->
-                                    <div v-if="strategy?.strategy_type === 'warmup'"
-                                         class="space-y-4">
-                                        <h4 class="text-md font-medium text-gray-900">Настройки
-                                            прогрева</h4>
-
-                                        <!-- Тип стратегии -->
+                                    <!-- Основные настройки -->
+                                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <!-- Название стратегии -->
                                         <div>
                                             <label
                                                 class="block text-sm font-medium text-gray-700 mb-2">
-                                                Тип стратегии прогрева *
+                                                Название стратегии
                                             </label>
-                                            <select
-                                                v-model="form.config.type"
+                                            <input
+                                                v-model="form.name"
+                                                type="text"
                                                 required
+                                                maxlength="255"
                                                 class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                            >
-                                                <option value="direct">Только прямые заходы</option>
-                                                <option value="search">Только поиск в Яндексе
-                                                </option>
-                                                <option value="mixed">Комбинированная стратегия
-                                                </option>
-                                            </select>
-                                        </div>
-
-                                        <!-- Пропорции для mixed стратегии -->
-                                        <div v-if="form.config.type === 'mixed'"
-                                             class="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label
-                                                    class="block text-sm font-medium text-gray-700 mb-1">
-                                                    Прямые заходы
-                                                </label>
-                                                <input
-                                                    v-model.number="form.config.proportions.direct_visits"
-                                                    type="number"
-                                                    min="1"
-                                                    max="20"
-                                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label
-                                                    class="block text-sm font-medium text-gray-700 mb-1">
-                                                    Поисковые заходы
-                                                </label>
-                                                <input
-                                                    v-model.number="form.config.proportions.search_visits"
-                                                    type="number"
-                                                    min="1"
-                                                    max="20"
-                                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <!-- Настройки поиска -->
-                                        <div
-                                            v-if="form.config.type === 'search' || form.config.type === 'mixed'">
-                                            <label
-                                                class="block text-sm font-medium text-gray-700 mb-2">
-                                                Домены Яндекса для поиска
-                                            </label>
-                                            <div class="space-y-2">
-                                                <label
-                                                    v-for="domain in yandexDomains"
-                                                    :key="domain.value"
-                                                    class="flex items-center"
-                                                >
-                                                    <input
-                                                        v-model="form.config.search_config.yandex_domains"
-                                                        type="checkbox"
-                                                        :value="domain.value"
-                                                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                                    />
-                                                    <span class="ml-2 text-sm text-gray-700">{{
-                                                            domain.label
-                                                        }}</span>
-                                                </label>
-                                            </div>
-                                        </div>
-
-                                        <!-- Дополнительные настройки прогрева -->
-                                        <div class="border-t pt-4">
-                                            <h5 class="text-sm font-medium text-gray-900 mb-3">
-                                                Поведенческие настройки</h5>
-
-                                            <div class="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <label
-                                                        class="block text-sm font-medium text-gray-700 mb-1">
-                                                        Время на сайте (мин)
-                                                    </label>
-                                                    <div class="grid grid-cols-2 gap-2">
-                                                        <input
-                                                            v-model.number="form.config.direct_config.time_per_site.min"
-                                                            type="number"
-                                                            min="1"
-                                                            placeholder="От"
-                                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                        />
-                                                        <input
-                                                            v-model.number="form.config.direct_config.time_per_site.max"
-                                                            type="number"
-                                                            min="1"
-                                                            placeholder="До"
-                                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <label
-                                                        class="block text-sm font-medium text-gray-700 mb-1">
-                                                        Сайтов за сессию
-                                                    </label>
-                                                    <div class="grid grid-cols-2 gap-2">
-                                                        <input
-                                                            v-model.number="form.config.direct_config.sites_per_session.min"
-                                                            type="number"
-                                                            min="1"
-                                                            placeholder="От"
-                                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                        />
-                                                        <input
-                                                            v-model.number="form.config.direct_config.sites_per_session.max"
-                                                            type="number"
-                                                            min="1"
-                                                            placeholder="До"
-                                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Конфигурация стратегии проверки позиций -->
-                                    <div v-if="strategy?.strategy_type === 'position_check'"
-                                         class="space-y-4">
-                                        <h4 class="text-md font-medium text-gray-900">Настройки
-                                            проверки позиций</h4>
-
-                                        <!-- Частота проверки -->
-                                        <div>
-                                            <label
-                                                class="block text-sm font-medium text-gray-700 mb-2">
-                                                Частота проверки
-                                            </label>
-                                            <select
-                                                v-model="form.config.check_frequency"
-                                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                            >
-                                                <option value="daily">Ежедневно</option>
-                                                <option value="weekly">Еженедельно</option>
-                                                <option value="monthly">Ежемесячно</option>
-                                                <option value="custom">Пользовательское расписание
-                                                </option>
-                                            </select>
-                                        </div>
-
-                                        <!-- Количество страниц для проверки -->
-                                        <div>
-                                            <label
-                                                class="block text-sm font-medium text-gray-700 mb-2">
-                                                Количество страниц для проверки
-                                            </label>
-                                            <input
-                                                v-model.number="form.config.search_config.pages_to_check"
-                                                type="number"
-                                                min="1"
-                                                max="50"
-                                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                                placeholder="Введите название стратегии"
                                             />
                                         </div>
 
-                                        <!-- Типы устройств -->
-                                        <div>
-                                            <label
-                                                class="block text-sm font-medium text-gray-700 mb-2">
-                                                Типы устройств
+                                        <!-- Статус стратегии -->
+                                        <div class="flex items-center">
+                                            <label class="flex items-center">
+                                                <input
+                                                    v-model="form.is_active"
+                                                    type="checkbox"
+                                                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                />
+                                                <span class="ml-2 text-sm text-gray-700">Активная стратегия</span>
                                             </label>
-                                            <div class="space-y-2">
-                                                <label class="flex items-center">
-                                                    <input
-                                                        v-model="form.config.search_config.device_types"
-                                                        type="checkbox"
-                                                        value="desktop"
-                                                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                                    />
-                                                    <span
-                                                        class="ml-2 text-sm text-gray-700">Десктоп</span>
-                                                </label>
-                                                <label class="flex items-center">
-                                                    <input
-                                                        v-model="form.config.search_config.device_types"
-                                                        type="checkbox"
-                                                        value="mobile"
-                                                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                                    />
-                                                    <span class="ml-2 text-sm text-gray-700">Мобильное</span>
-                                                </label>
-                                            </div>
                                         </div>
+                                    </div>
 
-                                        <!-- Дополнительные настройки проверки позиций -->
-                                        <div class="border-t pt-4">
-                                            <h5 class="text-sm font-medium text-gray-900 mb-3">
-                                                Поведенческие настройки</h5>
+                                    <!-- Конфигурация стратегии -->
+                                    <div>
+                                        <h4 class="text-sm font-medium text-gray-900 mb-4">
+                                            Конфигурация стратегии
+                                        </h4>
 
-                                            <div class="space-y-3">
-                                                <label class="flex items-center">
-                                                    <input
-                                                        v-model="form.config.behavior.scroll_serp"
-                                                        type="checkbox"
-                                                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                                    />
-                                                    <span class="ml-2 text-sm text-gray-700">Прокручивать SERP</span>
-                                                </label>
+                                        <!-- Warmup Configuration -->
+                                        <WarmupForm
+                                            v-if="strategy?.strategy_type === 'warmup'"
+                                            v-model="form.config"
+                                            :is-editing="true"
+                                        />
 
-                                                <div>
-                                                    <label
-                                                        class="block text-sm font-medium text-gray-700 mb-1">
-                                                        Время на SERP (сек)
-                                                    </label>
-                                                    <div class="grid grid-cols-2 gap-2">
-                                                        <input
-                                                            v-model.number="form.config.behavior.time_on_serp.min"
-                                                            type="number"
-                                                            min="1"
-                                                            placeholder="От"
-                                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                        />
-                                                        <input
-                                                            v-model.number="form.config.behavior.time_on_serp.max"
-                                                            type="number"
-                                                            min="1"
-                                                            placeholder="До"
-                                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
+                                        <!-- Position Check Configuration -->
+                                        <PositionCheckForm
+                                            v-else-if="strategy?.strategy_type === 'position_check'"
+                                            v-model="form.config"
+                                            :is-editing="true"
+                                        />
+
+                                        <!-- Profile Nurture Configuration -->
+                                        <ProfileNurtureForm
+                                            v-else-if="strategy?.strategy_type === 'profile_nurture'"
+                                            v-model="form.config"
+                                            :strategy-id="strategy?.id"
+                                            :is-editing="true"
+                                        />
+
+                                        <!-- Fallback for unknown strategy types -->
+                                        <div v-else class="text-center py-8">
+                                            <p class="text-sm text-gray-500">
+                                                Неизвестный тип стратегии:
+                                                {{ strategy?.strategy_type }}
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="mt-6 flex justify-end space-x-3">
-                                    <button
-                                        type="button"
-                                        class="btn-secondary"
-                                        @click="$emit('close')"
-                                    >
-                                        Отмена
-                                    </button>
+                                <div class="mt-6 sm:mt-8 sm:flex sm:flex-row-reverse">
                                     <button
                                         type="submit"
-                                        class="btn-primary"
                                         :disabled="loading || !form.name"
+                                        class="inline-flex w-full justify-center rounded-md bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 sm:ml-3 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <Spinner v-if="loading" class="w-4 h-4 mr-2"/>
-                                        Сохранить изменения
+                                        {{ loading ? 'Сохранение...' : 'Сохранить изменения' }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="$emit('close')"
+                                        class="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+                                    >
+                                        Отмена
                                     </button>
                                 </div>
                             </form>
@@ -356,39 +152,28 @@
 <script setup lang="ts">
 import {ref, computed, watch} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from '@headlessui/vue'
-import {PencilIcon} from '@heroicons/vue/24/outline'
-
+import {PencilIcon, BeakerIcon, ChartBarIcon, UserIcon} from '@heroicons/vue/24/outline'
 import {useStrategiesStore} from '@/stores/strategies'
 import Spinner from '@/components/ui/Spinner.vue'
+
+// Импортируем компоненты форм
+import WarmupForm from '@/components/strategies/WarmupForm.vue'
+import PositionCheckForm from '@/components/strategies/PositionCheckForm.vue'
+import ProfileNurtureForm from '@/components/strategies/ProfileNurtureForm.vue'
 
 interface Props {
     isOpen: boolean
     strategy: any | null
 }
 
-interface Emits {
-    (e: 'close'): void
-
-    (e: 'updated', strategy: any): void
-}
-
 const props = defineProps<Props>()
-const emit = defineEmits<Emits>()
+const emit = defineEmits<{
+    close: []
+    updated: [strategy: any]
+}>()
 
 const strategiesStore = useStrategiesStore()
-
 const loading = ref(false)
-
-const strategyTypeLabel = computed(() =>
-    props.strategy?.strategy_type === 'warmup' ? 'прогрева' : 'проверки позиций'
-)
-
-const yandexDomains = [
-    {value: 'yandex.ru', label: 'Яндекс.Россия (yandex.ru)'},
-    {value: 'yandex.by', label: 'Яндекс.Беларусь (yandex.by)'},
-    {value: 'yandex.kz', label: 'Яндекс.Казахстан (yandex.kz)'},
-    {value: 'yandex.ua', label: 'Яндекс.Украина (yandex.ua)'}
-]
 
 const form = ref({
     name: '',
@@ -396,12 +181,57 @@ const form = ref({
     config: {}
 })
 
+const strategyTypeLabel = computed(() => {
+    if (!props.strategy) return ''
+
+    switch (props.strategy.strategy_type) {
+        case 'warmup':
+            return 'прогрева'
+        case 'position_check':
+            return 'проверки позиций'
+        case 'profile_nurture':
+            return 'нагула профиля'
+        default:
+            return props.strategy.strategy_type
+    }
+})
+
+const strategyTypeDescription = computed(() => {
+    if (!props.strategy) return ''
+
+    switch (props.strategy.strategy_type) {
+        case 'warmup':
+            return 'прогрева сайтов перед проверкой позиций'
+        case 'position_check':
+            return 'проверки позиций сайтов в поиске'
+        case 'profile_nurture':
+            return 'нагула профилей браузера для обхода детекции'
+        default:
+            return ''
+    }
+})
+
+function getStrategyIcon() {
+    if (!props.strategy) return PencilIcon
+
+    switch (props.strategy.strategy_type) {
+        case 'warmup':
+            return BeakerIcon
+        case 'position_check':
+            return ChartBarIcon
+        case 'profile_nurture':
+            return UserIcon
+        default:
+            return PencilIcon
+    }
+}
+
 function resetForm() {
     if (props.strategy) {
         form.value = {
-            name: props.strategy.name,
+            name: props.strategy.name || '',
             is_active: props.strategy.is_active ?? true,
-            config: JSON.parse(JSON.stringify(props.strategy.config))
+            config: JSON.parse(JSON.stringify(props.strategy.config || {}))
         }
     }
 }
@@ -412,6 +242,34 @@ async function handleSubmit() {
     try {
         loading.value = true
 
+        // Валидация для profile_nurture
+        if (props.strategy.strategy_type === 'profile_nurture') {
+            const nurtureType = form.value.config.nurture_type
+
+            // Очищаем конфигурацию от ненужных полей
+            form.value.config = strategiesStore.cleanProfileNurtureConfig(form.value.config)
+
+            // Валидация источника запросов
+            if (['search_based', 'mixed_nurture'].includes(nurtureType)) {
+                const queriesErrors = strategiesStore.validateQueriesSource(form.value.config.queries_source)
+                if (queriesErrors.length > 0) {
+                    throw new Error(`Ошибки в источнике запросов: ${queriesErrors.join(', ')}`)
+                }
+            }
+
+            // Валидация источника сайтов
+            if (['direct_visits', 'mixed_nurture'].includes(nurtureType)) {
+                if (form.value.config.direct_sites_source) {
+                    const sitesErrors = strategiesStore.validateDirectSitesSource(form.value.config.direct_sites_source)
+                    if (sitesErrors.length > 0) {
+                        throw new Error(`Ошибки в источнике сайтов: ${sitesErrors.join(', ')}`)
+                    }
+                } else {
+                    throw new Error('Источник сайтов обязателен для прямых заходов')
+                }
+            }
+        }
+
         const strategy = await strategiesStore.updateStrategy(props.strategy.id, {
             name: form.value.name,
             is_active: form.value.is_active,
@@ -421,7 +279,8 @@ async function handleSubmit() {
         emit('updated', strategy)
     } catch (error) {
         console.error('Error updating strategy:', error)
-        // Здесь можно добавить уведомление об ошибке
+        // Здесь можно добавить уведомление об ошибке пользователю
+        alert(`Ошибка при сохранении стратегии: ${error.message}`)
     } finally {
         loading.value = false
     }
