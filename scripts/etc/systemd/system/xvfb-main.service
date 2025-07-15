@@ -1,0 +1,35 @@
+#scripts/etc/systemd/system/xvfb-main.service
+
+# /etc/systemd/system/xvfb-main.service
+# Основной Xvfb дисплей для продакшн браузеров
+[Unit]
+Description=Xvfb Main Display for Browser Profiles
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=parser
+Group=parser
+Environment=DISPLAY=:99
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac -nolisten tcp +extension GLX +extension RANDR -dpi 96
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Ресурсы и лимиты
+MemoryLimit=512M
+CPUQuota=20%
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,36 @@
+# scripts/etc/systemd/system/vnc-cleanup.service
+
+# /etc/systemd/system/vnc-cleanup.service
+# Сервис автоматической очистки VNC сессий
+[Unit]
+Description=VNC Sessions Cleanup Service
+After=network.target postgresql.service redis.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=parser
+Group=parser
+WorkingDirectory=/app
+Environment=PYTHONPATH=/app
+ExecStart=/app/venv/bin/python -m app.core.vnc_cleanup_daemon
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Ресурсы
+MemoryLimit=256M
+CPUQuota=10%
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/app/logs /tmp
+
+[Install]
+WantedBy=multi-user.target
+

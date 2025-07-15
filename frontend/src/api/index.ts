@@ -136,14 +136,44 @@ class ApiClient {
         return this.client.get('/domains/')
     }
 
-    async addDomain(domain: string) {
-        return this.client.post('/domains/', {domain})
+    async addDomain(domain: string, regionId: string) {
+        return this.client.post('/domains/', {
+            domain,
+            region_id: regionId
+        })
+    }
+
+    async updateDomain(domainId: string, data: {
+        domain: string
+        region_id: string
+        is_verified: boolean
+    }) {
+        return this.client.put(`/domains/${domainId}`, data)
     }
 
     async deleteDomain(domainId: string) {
         return this.client.delete(`/domains/${domainId}`)
     }
 
+    // async getRegions() {
+    //     return this.client.get('/domains/regions')
+    // }
+
+    /**
+     * Поиск регионов по названию или коду
+     */
+    async searchRegions(query: string, limit = 20) {
+        return this.client.get('/domains/regions/search', {
+            params: {
+                q: query,
+                limit
+            }
+        })
+    }
+
+    /**
+     * Получение всех регионов (существующий метод)
+     */
     async getRegions() {
         return this.client.get('/domains/regions')
     }
@@ -158,10 +188,6 @@ class ApiClient {
             region_id: regionId,
             device_type: deviceType
         })
-    }
-
-    async deleteKeyword(keywordId: string) {
-        return this.client.delete(`/domains/keywords/${keywordId}`)
     }
 
     // Billing endpoints
@@ -229,27 +255,100 @@ class ApiClient {
     }
 
     // Bulk keyword methods
+    /**
+     * Загрузка ключевых слов из текстового файла
+     */
     async loadKeywordsFromTextFile(url: string) {
-        return this.client.post('/domains/keywords/load-from-text', {url})
+        return this.client.post('/domains/load-keywords/text-file', {
+            url
+        })
     }
 
+    /**
+     * Загрузка ключевых слов из Excel файла
+     */
     async loadKeywordsFromExcel(url: string, sheet: number = 1, startRow: number = 1) {
-        return this.client.post('/domains/keywords/load-from-excel', {
+        return this.client.post('/domains/load-keywords/excel', {
             url,
             sheet,
             start_row: startRow
         })
     }
 
+    /**
+     * Загрузка ключевых слов из Word документа
+     */
     async loadKeywordsFromWord(url: string) {
-        return this.client.post('/domains/keywords/load-from-word', {url})
+        return this.client.post('/domains/load-keywords/word', {
+            url
+        })
     }
 
-    async addBulkKeywords(domainId: string, keywords: string[], regionId: string, deviceType: string) {
+    /**
+     * Обновление ключевого слова
+     */
+    async updateKeyword(keywordId: string, data: {
+        keyword: string,
+        region_id: string,
+        device_type: string,
+        check_frequency: string,
+        is_active: boolean
+    }) {
+        return this.client.put(`/domains/keywords/${keywordId}`, data)
+    }
+
+    /**
+     * Удаление ключевого слова
+     */
+    async deleteKeyword(keywordId: string) {
+        return this.client.delete(`/domains/keywords/${keywordId}`)
+    }
+
+    /**
+     * Массовое удаление ключевых слов
+     */
+    async bulkDeleteKeywords(keywordIds: string[]) {
+        return this.client.delete('/domains/keywords/bulk', {
+            data: {
+                keyword_ids: keywordIds
+            }
+        })
+    }
+
+    /**
+     * Массовое редактирование ключевых слов
+     */
+    async bulkEditKeywords(domainId: string, data: {
+        added_keywords: string[],
+        removed_keywords: string[],
+        new_keywords_settings?: {
+            region_id: string,
+            device_type: string,
+            check_frequency: string,
+            is_active: boolean
+        }
+    }) {
+        return this.client.post(`/domains/${domainId}/keywords/bulk-edit`, data)
+    }
+
+
+    /**
+     * Массовое добавление ключевых слов
+     */
+    async addBulkKeywords(
+        domainId: string,
+        keywords: string[],
+        regionId: string,
+        deviceType: string = 'DESKTOP',
+        checkFrequency: string = 'daily',
+        isActive: boolean = true
+    ) {
         return this.client.post(`/domains/${domainId}/keywords/bulk`, {
             keywords,
             region_id: regionId,
-            device_type: deviceType
+            device_type: deviceType,
+            check_frequency: checkFrequency,
+            is_active: isActive
         })
     }
 

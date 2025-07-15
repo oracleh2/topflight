@@ -1,73 +1,450 @@
+# docker-compose.yml - TopFlight Production Configuration
+version: '3.8'
+
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: topflight_postgres
-    environment:
-      # Создаем суперпользователя postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres_password
-      POSTGRES_DB: yandex_parser
-      # Настройки для правильной работы
-      POSTGRES_HOST_AUTH_METHOD: trust
-    #      POSTGRES_HOST_AUTH_METHOD: md5
-    #      POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=trust"
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d yandex_parser" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    command: >
-      postgres
-      -c listen_addresses='*'
-      -c max_connections=200
-      -c shared_buffers=128MB
-      -c effective_cache_size=512MB
-      -c maintenance_work_mem=64MB
-      -c checkpoint_completion_target=0.9
-      -c wal_buffers=16MB
-      -c default_statistics_target=100
+    # PostgreSQL Database
+    postgres:
+        image: postgres:15-alpine
+        container_name: topflight_postgres
+        environment:
+            # Используем настройки из вашего файла
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres_password
+            POSTGRES_DB: yandex_parser
+            POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+            - "5432:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+            - ./init-scripts:/docker-entrypoint-initdb.d
+        healthcheck:
+            test: [ "CMD-SHELL", "pg_isready -U postgres -d yandex_parser" ]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        restart: unless-stopped
+        command: >
+            postgres
+            -c listen_addresses='*'
+            -c max_connections=200
+            -c shared_buffers=128MB
+            -c effective_cache_size=512MB
+            -c maintenance_work_mem=64MB
+            -c checkpoint_completion_target=0.9
+            -c wal_buffers=16MB
+            -c default_statistics_target=100
+        networks:
+            - topflight_network
 
-  redis:
-    image: redis:7-alpine
-    container_name: topflight_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    # Redis Cache & Message Broker
+    redis:
+        image: redis:7-alpine
+        container_name: topflight_redis
+        ports:
+            - "6379:6379"
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: [ "CMD", "redis-cli", "ping" ]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+        restart: unless-stopped
+        command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+        networks:
+            - topflight_network
 
-  adminer:
-    image: adminer
-    container_name: topflight_adminer
-    ports:
-      - "8081:8080"
-    environment:
-      ADMINER_DEFAULT_SERVER: postgres
-      ADMINER_DESIGN: pepa-linha
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+    # Main Xvfb Display
+    xvfb-main:
+        image: topflight_xvfb
+        build:
+            context: ./docker/xvfb
+            dockerfile: Dockerfile
+        container_name: topflight_xvfb
+        environment:
+            - DISPLAY=:99
+            - RESOLUTION=1920x1080x24
+        volumes:
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - xvfb_data:/tmp/xvfb
+        command: >
+            Xvfb :99 -screen 0 1920x1080x24 -ac -nolisten tcp
+            +extension GLX +extension RANDR -dpi 96
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 512M
+                    cpus: '0.5'
+        networks:
+            - topflight_network
 
+    # Backend API Server
+    backend:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        container_name: topflight_backend
+        environment:
+            # Production environment variables
+            - DATABASE_URL=postgresql+asyncpg://postgres:postgres_password@postgres:5432/yandex_parser
+            - REDIS_URL=redis://redis:6379/0
+            - SECRET_KEY=${SECRET_KEY:-topflight_secret_key_change_in_production}
+            - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@topflight.com}
+            - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+            - VNC_MAX_SESSIONS=10
+            - VNC_SESSION_TIMEOUT=3600
+            - DISPLAY=:99
+            - ENVIRONMENT=production
+            - PROJECT_ROOT=/var/www/topflight
+        volumes:
+            # Правильные пути для production
+            - ./backend:/var/www/topflight/backend
+            - ./logs:/var/www/topflight/logs
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - vnc_data:/var/www/topflight/vnc_data
+            - vnc_tokens:/var/www/topflight/vnc_tokens
+        ports:
+            - "8000:8000"
+            - "5900-5910:5900-5910"  # VNC ports range
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            xvfb-main:
+                condition: service_started
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 4G
+                    cpus: '2.0'
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+        networks:
+            - topflight_network
+
+    # Task Worker
+    worker:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        container_name: topflight_worker
+        environment:
+            - DATABASE_URL=postgresql+asyncpg://postgres:postgres_password@postgres:5432/yandex_parser
+            - REDIS_URL=redis://redis:6379/0
+            - SECRET_KEY=${SECRET_KEY:-topflight_secret_key_change_in_production}
+            - DISPLAY=:99
+            - ENVIRONMENT=production
+            - PROJECT_ROOT=/var/www/topflight
+        volumes:
+            - ./backend:/var/www/topflight/backend
+            - ./logs:/var/www/topflight/logs
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+        command: python run_worker.py
+        depends_on:
+            - postgres
+            - redis
+            - xvfb-main
+            - backend
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 2G
+                    cpus: '1.0'
+        networks:
+            - topflight_network
+
+    # noVNC Web Interface
+    novnc:
+        build:
+            context: ./docker/novnc
+            dockerfile: Dockerfile
+        container_name: topflight_novnc
+        ports:
+            - "6080:6080"
+        volumes:
+            - vnc_tokens:/var/www/topflight/vnc_tokens:ro
+        environment:
+            - VNC_PROXY_HOST=backend
+            - VNC_PROXY_PORT_RANGE=5900-5910
+            - PROJECT_ROOT=/var/www/topflight
+        depends_on:
+            - backend
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 256M
+                    cpus: '0.2'
+        networks:
+            - topflight_network
+
+    # WebSockify Proxy for noVNC
+    websockify:
+        build:
+            context: ./docker/websockify
+            dockerfile: Dockerfile
+        container_name: topflight_websockify
+        ports:
+            - "6081:6081"
+        volumes:
+            - vnc_tokens:/var/www/topflight/vnc_tokens:ro
+        environment:
+            - WEBSOCKIFY_PORT=6081
+            - TOKEN_FILE=/var/www/topflight/vnc_tokens/vnc_tokens.conf
+            - PROJECT_ROOT=/var/www/topflight
+        depends_on:
+            - backend
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 128M
+                    cpus: '0.1'
+        networks:
+            - topflight_network
+
+    # VNC Cleanup Service
+    vnc-cleanup:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        container_name: topflight_vnc_cleanup
+        environment:
+            - DATABASE_URL=postgresql+asyncpg://postgres:postgres_password@postgres:5432/yandex_parser
+            - REDIS_URL=redis://redis:6379/0
+            - VNC_CLEANUP_INTERVAL=300
+            - VNC_SESSION_TIMEOUT=3600
+            - PROJECT_ROOT=/var/www/topflight
+        volumes:
+            - ./backend:/var/www/topflight/backend
+            - ./logs:/var/www/topflight/logs
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - vnc_data:/var/www/topflight/vnc_data
+            - vnc_tokens:/var/www/topflight/vnc_tokens
+        command: python -m app.core.vnc_cleanup_daemon
+        depends_on:
+            - postgres
+            - redis
+            - backend
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 256M
+                    cpus: '0.2'
+        networks:
+            - topflight_network
+
+    # Frontend (for development, in production served by nginx)
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        container_name: topflight_frontend
+        ports:
+            - "3000:3000"
+        environment:
+            - VITE_API_BASE_URL=http://localhost:8000
+            - VITE_VNC_BASE_URL=http://localhost:6080
+            - NODE_ENV=development
+        volumes:
+            - ./frontend:/var/www/topflight/frontend
+            - /var/www/topflight/frontend/node_modules
+        depends_on:
+            - backend
+        restart: unless-stopped
+        profiles:
+            - development
+        networks:
+            - topflight_network
+
+    # Reverse Proxy (Nginx)
+    nginx:
+        image: nginx:alpine
+        container_name: topflight_nginx
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+            - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+            - ./frontend/dist:/var/www/topflight/frontend/dist:ro
+            - nginx_logs:/var/log/nginx
+        depends_on:
+            - backend
+            - novnc
+        restart: unless-stopped
+        profiles:
+            - production
+        networks:
+            - topflight_network
+
+    # Monitoring - Prometheus
+    prometheus:
+        image: prom/prometheus:latest
+        container_name: topflight_prometheus
+        ports:
+            - "9090:9090"
+        volumes:
+            - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - ./docker/prometheus/rules:/etc/prometheus/rules:ro
+            - prometheus_data:/prometheus
+        command:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.console.libraries=/etc/prometheus/console_libraries'
+            - '--web.console.templates=/etc/prometheus/consoles'
+            - '--storage.tsdb.retention.time=30d'
+            - '--web.enable-lifecycle'
+            - '--web.enable-admin-api'
+        restart: unless-stopped
+        profiles:
+            - monitoring
+        networks:
+            - topflight_network
+
+    # Monitoring - Grafana
+    grafana:
+        image: grafana/grafana:latest
+        container_name: topflight_grafana
+        ports:
+            - "3001:3000"
+        environment:
+            - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+            - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+            - GF_SERVER_ROOT_URL=http://localhost:3001
+        volumes:
+            - grafana_data:/var/lib/grafana
+            - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+            - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+        depends_on:
+            - prometheus
+        restart: unless-stopped
+        profiles:
+            - monitoring
+        networks:
+            - topflight_network
+
+    # System Monitoring
+    node-exporter:
+        image: prom/node-exporter:latest
+        container_name: topflight_node_exporter
+        ports:
+            - "9100:9100"
+        volumes:
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+            - /:/rootfs:ro
+        command:
+            - '--path.procfs=/host/proc'
+            - '--path.rootfs=/rootfs'
+            - '--path.sysfs=/host/sys'
+            - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+        restart: unless-stopped
+        profiles:
+            - monitoring
+        networks:
+            - topflight_network
+
+    # PostgreSQL Monitoring
+    postgres-exporter:
+        image: prometheuscommunity/postgres-exporter:latest
+        container_name: topflight_postgres_exporter
+        environment:
+            DATA_SOURCE_NAME: "postgresql://postgres:postgres_password@postgres:5432/yandex_parser?sslmode=disable"
+        ports:
+            - "9187:9187"
+        depends_on:
+            - postgres
+        restart: unless-stopped
+        profiles:
+            - monitoring
+        networks:
+            - topflight_network
+
+    # Redis Monitoring
+    redis-exporter:
+        image: oliver006/redis_exporter:latest
+        container_name: topflight_redis_exporter
+        environment:
+            REDIS_ADDR: "redis://redis:6379"
+        ports:
+            - "9121:9121"
+        depends_on:
+            - redis
+        restart: unless-stopped
+        profiles:
+            - monitoring
+        networks:
+            - topflight_network
+
+# Persistent Volumes
 volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
+    postgres_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/postgres
+    redis_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/redis
+    prometheus_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/prometheus
+    grafana_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/grafana
+    nginx_logs:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/logs/nginx
+    vnc_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/vnc
+    vnc_tokens:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/vnc_tokens
+    xvfb_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /var/www/topflight/data/xvfb
 
+# Networks
 networks:
-  default:
-    name: topflight_network
+    topflight_network:
+        name: topflight_network
+        driver: bridge
+        ipam:
+            config:
+                -   subnet: 172.20.0.0/16
+

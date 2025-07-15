@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # Скрипт очистки VNC сессий
 set -euo pipefail
 

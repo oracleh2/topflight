@@ -30,33 +30,55 @@
                     Управляйте ключевыми словами для отслеживания позиций
                 </p>
             </div>
-            <div class="mt-4 sm:mt-0 sm:ml-16 sm:flex-none space-x-3">
-                <button
-                    type="button"
-                    class="btn-secondary"
-                    @click="showCheckPositionsModal = true"
-                    :disabled="!selectedKeywords.length"
-                >
-                    Проверить позиции ({{ selectedKeywords.length }})
-                </button>
-                <button
-                    type="button"
-                    class="btn-secondary"
-                    @click="showBulkModal = true"
-                >
-                    Массовое добавление
-                </button>
-                <button
-                    type="button"
-                    class="btn-primary"
-                    @click="showAddModal = true"
-                >
-                    Добавить ключевое слово
-                </button>
+            <div class="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+                <div class="flex flex-wrap gap-3">
+                    <!-- Actions for selected keywords -->
+                    <div v-if="selectedKeywords.length > 0" class="flex gap-2">
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            @click="showCheckPositionsModal = true"
+                        >
+                            <MagnifyingGlassIcon class="h-4 w-4 mr-1"/>
+                            Проверить позиции ({{ selectedKeywords.length }})
+                        </button>
+                        <button
+                            type="button"
+                            class="btn-danger"
+                            @click="confirmBulkDelete"
+                        >
+                            <TrashIcon class="h-4 w-4 mr-1"/>
+                            Удалить ({{ selectedKeywords.length }})
+                        </button>
+                    </div>
 
-                <!--                <div class="mt-8">-->
-                <!--                    <DomainProxySettings :domain-id="domainId"/>-->
-                <!--                </div>-->
+                    <!-- Main action buttons -->
+                    <button
+                        type="button"
+                        class="btn-secondary"
+                        @click="showBulkEditModal = true"
+                        :disabled="!domainsStore.selectedDomainKeywords.length"
+                    >
+                        <PencilSquareIcon class="h-4 w-4 mr-1"/>
+                        Массовое редактирование
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-secondary"
+                        @click="showBulkModal = true"
+                    >
+                        <DocumentPlusIcon class="h-4 w-4 mr-1"/>
+                        Массовое добавление
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        @click="showAddModal = true"
+                    >
+                        <PlusIcon class="h-4 w-4 mr-1"/>
+                        Добавить ключевое слово
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -242,12 +264,25 @@
                                         class="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
                                         <MenuItem v-slot="{ active }">
                                             <button
+                                                @click="editKeyword(keyword)"
+                                                :class="[
+                            active ? 'bg-gray-100' : '',
+                            'block w-full text-left px-4 py-2 text-sm text-gray-700'
+                          ]"
+                                            >
+                                                <PencilIcon class="h-4 w-4 mr-2 inline"/>
+                                                Редактировать
+                                            </button>
+                                        </MenuItem>
+                                        <MenuItem v-slot="{ active }">
+                                            <button
                                                 @click="checkSinglePosition(keyword)"
                                                 :class="[
                             active ? 'bg-gray-100' : '',
                             'block w-full text-left px-4 py-2 text-sm text-gray-700'
                           ]"
                                             >
+                                                <MagnifyingGlassIcon class="h-4 w-4 mr-2 inline"/>
                                                 Проверить позицию
                                             </button>
                                         </MenuItem>
@@ -259,6 +294,7 @@
                             'block w-full text-left px-4 py-2 text-sm text-red-700'
                           ]"
                                             >
+                                                <TrashIcon class="h-4 w-4 mr-2 inline"/>
                                                 Удалить
                                             </button>
                                         </MenuItem>
@@ -282,6 +318,31 @@
             :domainId="id"
             @close="showAddModal = false"
             @success="handleKeywordAdded"
+        />
+
+        <!-- Edit keyword modal -->
+        <EditKeywordModal
+            :isOpen="showEditModal"
+            :keyword="keywordToEdit"
+            @close="showEditModal = false"
+            @success="handleKeywordUpdated"
+        />
+
+        <!-- Bulk add keywords modal -->
+        <BulkKeywordModal
+            :isOpen="showBulkModal"
+            :domainId="id"
+            @close="showBulkModal = false"
+            @success="handleBulkKeywordsAdded"
+        />
+
+        <!-- Bulk edit keywords modal -->
+        <BulkEditKeywordsModal
+            :isOpen="showBulkEditModal"
+            :domainId="id"
+            :keywords="domainsStore.selectedDomainKeywords"
+            @close="showBulkEditModal = false"
+            @success="handleBulkKeywordsEdited"
         />
 
         <!-- Check positions modal -->
@@ -323,16 +384,40 @@
                 </button>
             </template>
         </Modal>
+
+        <!-- Bulk delete confirmation modal -->
+        <Modal
+            :isOpen="showBulkDeleteModal"
+            title="Массовое удаление ключевых слов"
+            @close="showBulkDeleteModal = false"
+        >
+            <p class="text-sm text-gray-500">
+                Вы уверены, что хотите удалить <strong>{{ selectedKeywords.length }}</strong>
+                {{ selectedKeywords.length === 1 ? 'ключевое слово' : 'ключевых слов' }}?
+                Это действие нельзя отменить.
+            </p>
+
+            <template #actions>
+                <button
+                    type="button"
+                    class="btn-secondary"
+                    @click="showBulkDeleteModal = false"
+                >
+                    Отмена
+                </button>
+                <button
+                    type="button"
+                    class="btn-danger ml-3"
+                    @click="bulkDeleteKeywords"
+                    :disabled="domainsStore.loading"
+                >
+                    <Spinner v-if="domainsStore.loading" class="mr-2 h-4 w-4"/>
+                    Удалить {{ selectedKeywords.length }}
+                    {{ selectedKeywords.length === 1 ? 'ключевое слово' : 'ключевых слов' }}
+                </button>
+            </template>
+        </Modal>
     </div>
-    <!-- Bulk add keywords modal -->
-    <BulkKeywordModal
-        :isOpen="showBulkModal"
-        :domainId="id"
-        @close="showBulkModal = false"
-        @success="handleBulkKeywordsAdded"
-    />
-
-
 </template>
 
 <script setup lang="ts">
@@ -347,6 +432,10 @@ import {
     GlobeAltIcon,
     MagnifyingGlassIcon,
     PlusIcon,
+    PencilIcon,
+    PencilSquareIcon,
+    TrashIcon,
+    DocumentPlusIcon,
 } from '@heroicons/vue/24/outline'
 import {type Keyword, useDomainsStore} from '@/stores/domains'
 import {useTasksStore} from '@/stores/tasks'
@@ -354,8 +443,10 @@ import Spinner from '@/components/ui/Spinner.vue'
 import Alert from '@/components/ui/Alert.vue'
 import Modal from '@/components/ui/Modal.vue'
 import AddKeywordModal from '@/components/modals/AddKeywordModal.vue'
-import CheckPositionsModal from '@/components/modals/CheckPositionsModal.vue'
+import EditKeywordModal from '@/components/modals/EditKeywordModal.vue'
 import BulkKeywordModal from '@/components/modals/BulkKeywordModal.vue'
+import BulkEditKeywordsModal from '@/components/modals/BulkEditKeywordsModal.vue'
+import CheckPositionsModal from '@/components/modals/CheckPositionsModal.vue'
 import DomainProxySettings from "@/components/domains/DomainProxySettings.vue";
 
 interface Props {
@@ -369,11 +460,18 @@ const router = useRouter()
 const domainsStore = useDomainsStore()
 const tasksStore = useTasksStore()
 
+// Modal states
 const showAddModal = ref(false)
+const showEditModal = ref(false)
 const showBulkModal = ref(false)
+const showBulkEditModal = ref(false)
 const showCheckPositionsModal = ref(false)
 const showDeleteModal = ref(false)
+const showBulkDeleteModal = ref(false)
+
+// Data states
 const keywordToDelete = ref<Keyword | null>(null)
+const keywordToEdit = ref<Keyword | null>(null)
 const selectedKeywords = ref<string[]>([])
 
 const domainName = computed(() => {
@@ -411,22 +509,45 @@ const selectAll = () => {
     }
 }
 
-const handleKeywordAdded = () => {
+// Event handlers
+const handleKeywordAdded = async () => {
     showAddModal.value = false
     selectedKeywords.value = []
+    await domainsStore.fetchDomainKeywords(props.id)
 }
 
-const handleBulkKeywordsAdded = (keywords: string[]) => {
+const handleKeywordUpdated = async () => {
+    showEditModal.value = false
+    keywordToEdit.value = null
+    await domainsStore.fetchDomainKeywords(props.id)
+}
+
+const handleBulkKeywordsAdded = async (keywords: string[]) => {
     showBulkModal.value = false
     selectedKeywords.value = []
+    await domainsStore.fetchDomainKeywords(props.id)
     // Показываем уведомление об успешном добавлении
     console.log(`Добавлено ${keywords.length} ключевых слов`)
+}
+
+const handleBulkKeywordsEdited = async (changes: { added: string[], removed: string[] }) => {
+    showBulkEditModal.value = false
+    selectedKeywords.value = []
+    await domainsStore.fetchDomainKeywords(props.id)
+    // Показываем уведомление об успешном редактировании
+    console.log(`Изменения применены: добавлено ${changes.added.length}, удалено ${changes.removed.length}`)
 }
 
 const handlePositionsChecked = () => {
     showCheckPositionsModal.value = false
     selectedKeywords.value = []
     router.push('/tasks')
+}
+
+// Actions
+const editKeyword = (keyword: Keyword) => {
+    keywordToEdit.value = keyword
+    showEditModal.value = true
 }
 
 const checkSinglePosition = async (keyword: Keyword) => {
@@ -439,16 +560,35 @@ const confirmDelete = (keyword: Keyword) => {
     showDeleteModal.value = true
 }
 
+const confirmBulkDelete = () => {
+    if (selectedKeywords.value.length === 0) return
+    showBulkDeleteModal.value = true
+}
+
 const deleteKeyword = async () => {
     if (!keywordToDelete.value) return
 
     try {
-        await domainsStore.deleteKeyword(keywordToDelete.value.id, props.id)
+        await domainsStore.deleteKeyword(keywordToDelete.value.id)
         showDeleteModal.value = false
         keywordToDelete.value = null
         selectedKeywords.value = selectedKeywords.value.filter(id => id !== keywordToDelete.value?.id)
+        await domainsStore.fetchDomainKeywords(props.id)
     } catch (error) {
         console.error('Error deleting keyword:', error)
+    }
+}
+
+const bulkDeleteKeywords = async () => {
+    if (selectedKeywords.value.length === 0) return
+
+    try {
+        await domainsStore.bulkDeleteKeywords(selectedKeywords.value)
+        showBulkDeleteModal.value = false
+        selectedKeywords.value = []
+        await domainsStore.fetchDomainKeywords(props.id)
+    } catch (error) {
+        console.error('Error bulk deleting keywords:', error)
     }
 }
 

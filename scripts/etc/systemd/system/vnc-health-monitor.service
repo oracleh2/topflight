@@ -1,0 +1,22 @@
+# scripts/etc/systemd/system/vnc-health-monitor.service
+
+# /etc/systemd/system/vnc-health-monitor.service
+# Мониторинг здоровья VNC сессий
+[Unit]
+Description=VNC Health Monitor
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=parser
+Group=parser
+WorkingDirectory=/app
+ExecStart=/app/scripts/vnc_health_monitor.sh
+Restart=always
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

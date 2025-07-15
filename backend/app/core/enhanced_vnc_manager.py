@@ -1,4 +1,8 @@
-# backend/app/core/enhanced_vnc_manager.py
+# backend/app/core/enhanced_vnc_manager.py - обновленная версия с правильными путями
+"""
+Улучшенный VNC Manager для TopFlight с правильными путями
+"""
+
 import asyncio
 import os
 import signal
@@ -8,6 +12,7 @@ import shutil
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+from pathlib import Path
 import structlog
 
 from app.models import DeviceType
@@ -15,10 +20,16 @@ from .vnc_metrics import metrics_collector
 
 logger = structlog.get_logger(__name__)
 
+# Пути проекта
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", "/var/www/topflight"))
+VNC_DATA_DIR = PROJECT_ROOT / "data" / "vnc"
+VNC_TOKENS_DIR = PROJECT_ROOT / "data" / "vnc_tokens"
+LOGS_DIR = PROJECT_ROOT / "logs"
+
 
 @dataclass
 class VNCSession:
-    """Улучшенная информация о VNC сессии"""
+    """Информация о VNC сессии с обновленными путями"""
 
     task_id: str
     display_num: int
@@ -49,6 +60,7 @@ class VNCSession:
             "uptime_seconds": int(
                 (datetime.now(timezone.utc) - self.created_at).total_seconds()
             ),
+            "project_root": str(PROJECT_ROOT),
         }
 
     def _get_status(self) -> str:
@@ -57,7 +69,7 @@ class VNCSession:
             if self.xvfb_process and self.xvfb_process.returncode is None:
                 return "active"
             else:
-                return "degraded"  # VNC работает, но Xvfb нет
+                return "degraded"
         return "inactive"
 
     def update_activity(self):
@@ -66,18 +78,45 @@ class VNCSession:
 
 
 class EnhancedVNCManager:
-    """Улучшенный менеджер VNC сессий с метриками и безопасностью"""
+    """Улучшенный менеджер VNC сессий для TopFlight"""
 
     def __init__(self):
         self.active_sessions: Dict[str, VNCSession] = {}
         self.used_displays: set = set()
         self.base_display_num = 100
         self.max_sessions = int(os.getenv("VNC_MAX_SESSIONS", "10"))
-        self.vnc_host = "127.0.0.1"  # Только localhost для безопасности
-        self.session_timeout = int(os.getenv("VNC_SESSION_TIMEOUT", "3600"))  # 1 час
+        self.vnc_host = "127.0.0.1"
+        self.session_timeout = int(os.getenv("VNC_SESSION_TIMEOUT", "3600"))
 
-        # Проверяем доступность требуемых утилит
+        # Создаем необходимые директории
+        self._create_directories()
+
+        # Проверяем доступность утилит
         self._verify_dependencies()
+
+    def _create_directories(self):
+        """Создает необходимые директории"""
+        directories = [VNC_DATA_DIR, VNC_TOKENS_DIR, LOGS_DIR]
+
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+            # Устанавливаем права для пользователя topflight
+            if os.getuid() == 0:  # Если запущено от root
+                import pwd
+
+                try:
+                    topflight_uid = pwd.getpwnam("topflight").pw_uid
+                    topflight_gid = pwd.getpwnam("topflight").pw_gid
+                    os.chown(directory, topflight_uid, topflight_gid)
+                except KeyError:
+                    logger.warning("User 'topflight' not found, using current user")
+
+        logger.info(
+            "VNC directories created",
+            vnc_data=str(VNC_DATA_DIR),
+            vnc_tokens=str(VNC_TOKENS_DIR),
+            logs=str(LOGS_DIR),
+        )
 
     def _verify_dependencies(self):
         """Проверяет наличие необходимых утилит"""
@@ -90,14 +129,16 @@ class EnhancedVNCManager:
 
         if missing_tools:
             logger.error("Missing required tools for VNC", missing_tools=missing_tools)
-            raise RuntimeError(f"Missing tools: {', '.join(missing_tools)}")
+            raise RuntimeError(
+                f"Missing tools: {', '.join(missing_tools)}. Run setup_xvfb.sh first."
+            )
 
     async def create_debug_session(
         self, task_id: str, device_type: DeviceType
     ) -> Dict[str, Any]:
-        """Создает новую VNC сессию с улучшенной безопасностью"""
+        """Создает новую VNC сессию с правильными путями"""
         try:
-            # Проверки безопасности
+            # Проверки
             if len(self.active_sessions) >= self.max_sessions:
                 metrics_collector.record_connection_error(
                     "session_limit_exceeded", task_id
@@ -146,6 +187,7 @@ class EnhancedVNCManager:
             metrics_collector.record_session_created(task_id, device_type.value)
             metrics_collector.update_active_sessions_count(len(self.active_sessions))
 
+            # Логируем с информацией о путях
             logger.info(
                 "VNC debug session created",
                 task_id=task_id,
@@ -153,6 +195,7 @@ class EnhancedVNCManager:
                 display_num=display_num,
                 resolution=resolution,
                 device_type=device_type.value,
+                project_root=str(PROJECT_ROOT),
             )
 
             return session.to_dict()
@@ -162,6 +205,128 @@ class EnhancedVNCManager:
             metrics_collector.record_connection_error(
                 "session_creation_failed", task_id
             )
+            raise
+
+    async def _start_xvfb_display(
+        self, display_num: int, resolution: str
+    ) -> asyncio.subprocess.Process:
+        """Запускает Xvfb с правильными параметрами"""
+        # Создаем директорию для дисплея
+        display_dir = VNC_DATA_DIR / f"display_{display_num}"
+        display_dir.mkdir(exist_ok=True)
+
+        cmd = [
+            "Xvfb",
+            f":{display_num}",
+            "-screen",
+            "0",
+            f"{resolution}x24",
+            "-ac",
+            "-nolisten",
+            "tcp",
+            "+extension",
+            "GLX",
+            "+extension",
+            "RANDR",
+            "-dpi",
+            "96",
+            "-fbdir",
+            str(display_dir),  # Директория для frame buffer
+        ]
+
+        try:
+            # Логируем команду
+            logger.debug(
+                "Starting Xvfb", command=" ".join(cmd), display_dir=str(display_dir)
+            )
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(PROJECT_ROOT),
+            )
+
+            # Ждем запуска Xvfb
+            await asyncio.sleep(2)
+
+            if process.returncode is not None:
+                stderr_output = await process.stderr.read()
+                raise Exception(f"Xvfb failed to start: {stderr_output.decode()}")
+
+            logger.info(
+                "Xvfb started",
+                display_num=display_num,
+                resolution=resolution,
+                pid=process.pid,
+            )
+            return process
+
+        except Exception as e:
+            logger.error("Failed to start Xvfb", display_num=display_num, error=str(e))
+            metrics_collector.record_connection_error("xvfb_failed")
+            raise
+
+    async def _start_vnc_server(
+        self, display_num: int, vnc_port: int
+    ) -> asyncio.subprocess.Process:
+        """Запускает VNC сервер с безопасными настройками"""
+        # Создаем лог файл для VNC сервера
+        vnc_log = LOGS_DIR / f"vnc_{display_num}_{vnc_port}.log"
+
+        cmd = [
+            "x11vnc",
+            "-display",
+            f":{display_num}",
+            "-forever",
+            "-nopw",
+            "-localhost",  # ВАЖНО: только localhost
+            "-rfbport",
+            str(vnc_port),
+            "-no6",
+            "-norc",
+            "-quiet",
+            "-logfile",
+            str(vnc_log),
+        ]
+
+        try:
+            logger.debug(
+                "Starting VNC server", command=" ".join(cmd), log_file=str(vnc_log)
+            )
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(PROJECT_ROOT),
+            )
+
+            # Проверяем запуск VNC сервера
+            await asyncio.sleep(3)
+
+            if process.returncode is not None:
+                stderr_output = await process.stderr.read()
+                raise Exception(f"x11vnc failed to start: {stderr_output.decode()}")
+
+            # Проверяем, что порт открыт
+            if not await self._check_vnc_port(vnc_port):
+                raise Exception(f"VNC port {vnc_port} is not accessible")
+
+            logger.info(
+                "VNC server started",
+                display_num=display_num,
+                vnc_port=vnc_port,
+                pid=process.pid,
+                log_file=str(vnc_log),
+            )
+            return process
+
+        except Exception as e:
+            logger.error(
+                "Failed to start VNC server", display_num=display_num, error=str(e)
+            )
+            metrics_collector.record_connection_error("vnc_failed")
             raise
 
     async def stop_debug_session(self, task_id: str) -> bool:
@@ -174,7 +339,7 @@ class EnhancedVNCManager:
             session = self.active_sessions[task_id]
             success = True
 
-            # Останавливаем процессы с graceful shutdown
+            # Останавливаем процессы
             if session.vnc_process and session.vnc_process.returncode is None:
                 try:
                     session.vnc_process.terminate()
@@ -209,6 +374,23 @@ class EnhancedVNCManager:
                     )
                     success = False
 
+            # Очищаем директории сессии
+            display_dir = VNC_DATA_DIR / f"display_{session.display_num}"
+            if display_dir.exists():
+                try:
+                    import shutil
+
+                    shutil.rmtree(display_dir)
+                    logger.debug(
+                        "Cleaned display directory", display_dir=str(display_dir)
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to clean display directory",
+                        display_dir=str(display_dir),
+                        error=str(e),
+                    )
+
             # Очищаем ресурсы
             self.used_displays.discard(session.display_num)
             del self.active_sessions[task_id]
@@ -217,100 +399,18 @@ class EnhancedVNCManager:
             metrics_collector.record_session_terminated(task_id, "manual")
             metrics_collector.update_active_sessions_count(len(self.active_sessions))
 
-            logger.info("VNC session stopped", task_id=task_id, success=success)
+            logger.info(
+                "VNC session stopped",
+                task_id=task_id,
+                success=success,
+                display_num=session.display_num,
+                vnc_port=session.vnc_port,
+            )
             return success
 
         except Exception as e:
             logger.error("Error stopping VNC session", task_id=task_id, error=str(e))
             return False
-
-    async def _start_xvfb_display(
-        self, display_num: int, resolution: str
-    ) -> asyncio.subprocess.Process:
-        """Запускает Xvfb с улучшенными параметрами безопасности"""
-        cmd = [
-            "Xvfb",
-            f":{display_num}",
-            "-screen",
-            "0",
-            f"{resolution}x24",
-            "-ac",  # Отключаем access control для localhost
-            "-nolisten",
-            "tcp",  # Безопасность: только Unix sockets
-            "+extension",
-            "GLX",  # Поддержка WebGL
-            "+extension",
-            "RANDR",  # Изменение разрешения
-            "-dpi",
-            "96",  # Стандартный DPI
-        ]
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
-            )
-
-            # Ждем запуска Xvfb (проверяем существование display)
-            await asyncio.sleep(1)
-
-            if process.returncode is not None:
-                stderr_output = await process.stderr.read()
-                raise Exception(f"Xvfb failed to start: {stderr_output.decode()}")
-
-            logger.info("Xvfb started", display_num=display_num, resolution=resolution)
-            return process
-
-        except Exception as e:
-            logger.error("Failed to start Xvfb", display_num=display_num, error=str(e))
-            metrics_collector.record_connection_error("xvfb_failed")
-            raise
-
-    async def _start_vnc_server(
-        self, display_num: int, vnc_port: int
-    ) -> asyncio.subprocess.Process:
-        """Запускает VNC сервер с безопасными настройками"""
-        cmd = [
-            "x11vnc",
-            "-display",
-            f":{display_num}",
-            "-forever",  # Не завершаться после отключения клиента
-            "-nopw",  # Без пароля (безопасно т.к. только localhost)
-            "-localhost",  # ВАЖНО: только localhost подключения
-            "-rfbport",
-            str(vnc_port),
-            "-no6",  # Отключаем IPv6
-            "-norc",  # Не читаем ~/.x11vncrc
-            "-quiet",  # Меньше логов
-            "-bg",  # Фоновый режим
-        ]
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
-            )
-
-            # Проверяем запуск VNC сервера
-            await asyncio.sleep(2)
-
-            if process.returncode is not None:
-                stderr_output = await process.stderr.read()
-                raise Exception(f"x11vnc failed to start: {stderr_output.decode()}")
-
-            # Проверяем, что порт открыт
-            if not await self._check_vnc_port(vnc_port):
-                raise Exception(f"VNC port {vnc_port} is not accessible")
-
-            logger.info(
-                "VNC server started", display_num=display_num, vnc_port=vnc_port
-            )
-            return process
-
-        except Exception as e:
-            logger.error(
-                "Failed to start VNC server", display_num=display_num, error=str(e)
-            )
-            metrics_collector.record_connection_error("vnc_failed")
-            raise
 
     async def _check_vnc_port(self, port: int, timeout: float = 5.0) -> bool:
         """Проверяет доступность VNC порта"""
@@ -329,8 +429,8 @@ class EnhancedVNCManager:
         for i in range(self.base_display_num, self.base_display_num + 100):
             if i not in self.used_displays:
                 # Проверяем, что дисплей действительно свободен
-                lock_file = f"/tmp/.X{i}-lock"
-                if not os.path.exists(lock_file):
+                lock_file = Path(f"/tmp/.X{i}-lock")
+                if not lock_file.exists():
                     return i
         return None
 
@@ -338,7 +438,7 @@ class EnhancedVNCManager:
         """Определяет оптимальное разрешение для типа устройства"""
         resolutions = {
             DeviceType.DESKTOP: "1920x1080",
-            DeviceType.MOBILE: "1366x768",  # Больше места для мобильного дебага
+            DeviceType.MOBILE: "1366x768",
             DeviceType.TABLET: "1600x900",
         }
         return resolutions.get(device_type, "1920x1080")
@@ -348,18 +448,14 @@ class EnhancedVNCManager:
         active_sessions = []
 
         for task_id, session in list(self.active_sessions.items()):
-            # Обновляем активность если сессия живая
             if session._get_status() == "active":
                 session.update_activity()
                 active_sessions.append(session.to_dict())
             else:
-                # Автоматически убираем мертвые сессии
                 logger.warning("Removing dead VNC session", task_id=task_id)
                 await self.stop_debug_session(task_id)
 
-        # Обновляем метрики
         metrics_collector.update_active_sessions_count(len(active_sessions))
-
         return active_sessions
 
     def get_session_by_task(self, task_id: str) -> Optional[VNCSession]:
@@ -372,7 +468,6 @@ class EnhancedVNCManager:
         sessions_to_remove = []
 
         for task_id, session in self.active_sessions.items():
-            # Проверяем таймаут
             inactive_time = (current_time - session.last_activity).total_seconds()
             if inactive_time > self.session_timeout:
                 sessions_to_remove.append(task_id)
