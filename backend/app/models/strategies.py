@@ -5,7 +5,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime, timezone
 
-from app.database import Base
+from app.models.base import Base
 
 
 class StrategyTemplate(Base):
@@ -117,6 +117,11 @@ class ProjectStrategy(Base):
         "UserStrategy",
         foreign_keys=[position_check_strategy_id],
         back_populates="position_check_projects",
+    )
+    profile_nurture_strategy = relationship(
+        "UserStrategy",
+        foreign_keys=[profile_nurture_strategy_id],
+        back_populates="profile_nurture_projects",
     )
 
 

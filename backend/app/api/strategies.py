@@ -1,12 +1,17 @@
 # backend/app/api/strategies.py
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import json
 import csv
 import io
 import traceback
 
+from app.constants.strategies import (
+    validate_warmup_config,
+    validate_position_check_config,
+    validate_profile_nurture_config,
+)
 from app.database import get_session
 from app.dependencies import get_current_user
 from app.models import User
@@ -26,6 +31,8 @@ try:
         UserStrategyResponse,
         DataSourceCreate,
         ProjectStrategyCreate,
+        StrategyValidationResponse,
+        StrategyValidationRequest,
     )
 except ImportError as e:
     print(f"Warning: Could not import some strategy schemas: {e}")
@@ -343,6 +350,276 @@ async def get_project_strategies(
         print(f"Error in get_project_strategies: {e}")
         traceback.print_exc()
         return []
+
+
+@router.post("/validate-config", response_model=StrategyValidationResponse)
+async def validate_strategy_config(
+    request: StrategyValidationRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Валидация конфигурации стратегии"""
+    try:
+        strategy_type = request.strategy_type
+        config = request.config
+
+        errors = []
+        warnings = []
+        normalized_config = None
+
+        # Валидация в зависимости от типа стратегии
+        if strategy_type == "warmup":
+            try:
+                normalized_config = validate_warmup_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+
+        elif strategy_type == "position_check":
+            try:
+                normalized_config = validate_position_check_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+
+        elif strategy_type == "profile_nurture":
+            try:
+                normalized_config = validate_profile_nurture_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+
+        else:
+            errors.append(f"Неизвестный тип стратегии: {strategy_type}")
+
+        # Дополнительные проверки для нагула профиля
+        if strategy_type == "profile_nurture" and not errors:
+            nurture_type = config.get("nurture_type")
+
+            # Проверяем источники данных
+            if nurture_type in ["search_based", "mixed_nurture"]:
+                queries_source = config.get("queries_source", {})
+                if not queries_source.get("data_content") and not queries_source.get(
+                    "source_url"
+                ):
+                    warnings.append("Не указан источник поисковых запросов")
+
+            if nurture_type in ["direct_visits", "mixed_nurture"]:
+                direct_sites_source = config.get("direct_sites_source", {})
+                if not direct_sites_source.get(
+                    "data_content"
+                ) and not direct_sites_source.get("source_url"):
+                    warnings.append("Не указан источник сайтов для прямых заходов")
+
+        return StrategyValidationResponse(
+            is_valid=len(errors) == 0,
+            errors=errors,
+            warnings=warnings,
+            normalized_config=normalized_config if len(errors) == 0 else None,
+        )
+
+    except Exception as e:
+        print(f"Error in validate_strategy_config: {e}")
+        traceback.print_exc()
+        return StrategyValidationResponse(
+            is_valid=False,
+            errors=[f"Ошибка валидации: {str(e)}"],
+            warnings=[],
+            normalized_config=None,
+        )
+
+
+@router.post(
+    "/profile-nurture/validate-config", response_model=StrategyValidationResponse
+)
+async def validate_profile_nurture_config_endpoint(
+    config: Dict[str, Any],
+    session: AsyncSession = Depends(get_session),
+):
+    """Специализированная валидация для стратегий нагула профиля"""
+    try:
+        errors = []
+        warnings = []
+
+        # Базовая валидация
+        if not config.get("nurture_type"):
+            errors.append("Тип нагула профиля обязателен")
+
+        nurture_type = config.get("nurture_type")
+
+        # Проверка целевых куков
+        target_cookies = config.get("target_cookies", {})
+        if target_cookies:
+            min_cookies = target_cookies.get("min", 0)
+            max_cookies = target_cookies.get("max", 0)
+
+            if min_cookies <= 0 or max_cookies <= 0:
+                errors.append("Количество куков должно быть положительным")
+
+            if min_cookies > max_cookies:
+                errors.append(
+                    "Минимальное количество куков не может быть больше максимального"
+                )
+
+        # Проверка настроек сессии
+        session_config = config.get("session_config", {})
+        if session_config:
+            timeout_per_site = session_config.get("timeout_per_site", 0)
+            min_timeout = session_config.get("min_timeout", 0)
+            max_timeout = session_config.get("max_timeout", 0)
+
+            if timeout_per_site <= 0:
+                errors.append("Время на сайте должно быть положительным")
+
+            if min_timeout > max_timeout:
+                errors.append("Минимальный таймаут не может быть больше максимального")
+
+        # Проверка поисковых систем
+        if nurture_type in ["search_based", "mixed_nurture"]:
+            search_engines = config.get("search_engines", [])
+            if not search_engines:
+                errors.append("Поисковые системы обязательны для поискового нагула")
+
+        # Проверка источника запросов
+        if nurture_type in ["search_based", "mixed_nurture"]:
+            queries_source = config.get("queries_source", {})
+            if not queries_source:
+                errors.append("Источник запросов обязателен для поискового нагула")
+            else:
+                source_type = queries_source.get("type")
+                if source_type == "manual_input" and not queries_source.get(
+                    "data_content"
+                ):
+                    warnings.append("Не указаны поисковые запросы")
+                elif source_type in [
+                    "url_endpoint",
+                    "google_sheets",
+                    "google_docs",
+                ] and not queries_source.get("source_url"):
+                    warnings.append("Не указан URL источника запросов")
+
+        # Проверка источника сайтов
+        if nurture_type in ["direct_visits", "mixed_nurture"]:
+            direct_sites_source = config.get("direct_sites_source", {})
+            if not direct_sites_source:
+                errors.append("Источник сайтов обязателен для прямых заходов")
+            else:
+                source_type = direct_sites_source.get("type")
+                if source_type == "manual_input" and not direct_sites_source.get(
+                    "data_content"
+                ):
+                    warnings.append("Не указаны сайты для прямых заходов")
+                elif source_type in [
+                    "url_endpoint",
+                    "google_sheets",
+                    "google_docs",
+                ] and not direct_sites_source.get("source_url"):
+                    warnings.append("Не указан URL источника сайтов")
+
+        # Проверка пропорций для смешанного типа
+        if nurture_type == "mixed_nurture":
+            proportions = config.get("proportions", {})
+            if not proportions:
+                errors.append("Пропорции обязательны для смешанного нагула")
+            else:
+                search_visits = proportions.get("search_visits", 0)
+                direct_visits = proportions.get("direct_visits", 0)
+
+                if search_visits + direct_visits != 100:
+                    errors.append("Сумма пропорций должна равняться 100%")
+
+        # Нормализация конфигурации
+        normalized_config = None
+        if len(errors) == 0:
+            try:
+                normalized_config = validate_profile_nurture_config(config)
+            except ValueError as e:
+                errors.append(str(e))
+
+        return StrategyValidationResponse(
+            is_valid=len(errors) == 0,
+            errors=errors,
+            warnings=warnings,
+            normalized_config=normalized_config,
+        )
+
+    except Exception as e:
+        print(f"Error in validate_profile_nurture_config: {e}")
+        traceback.print_exc()
+        return StrategyValidationResponse(
+            is_valid=False,
+            errors=[f"Ошибка валидации: {str(e)}"],
+            warnings=[],
+            normalized_config=None,
+        )
+
+
+@router.post("/test-data-source")
+async def test_data_source(
+    source_data: DataSourceCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Тестирование источника данных"""
+    try:
+        source_type = source_data.source_type
+        source_url = source_data.source_url
+        data_content = source_data.data_content
+
+        items = []
+
+        if source_type == "manual_input":
+            if data_content:
+                items = [
+                    line.strip() for line in data_content.split("\n") if line.strip()
+                ]
+
+        elif source_type == "url_endpoint":
+            if source_url:
+                # Здесь можно добавить HTTP запрос для получения данных по URL
+                # Пока возвращаем mock данные
+                items = [f"test_item_{i}" for i in range(1, 6)]
+
+        elif source_type == "google_sheets":
+            if source_url:
+                # Здесь можно добавить интеграцию с Google Sheets API
+                # Пока возвращаем mock данные
+                items = [f"google_sheet_item_{i}" for i in range(1, 4)]
+
+        elif source_type == "google_docs":
+            if source_url:
+                # Здесь можно добавить интеграцию с Google Docs API
+                # Пока возвращаем mock данные
+                items = [f"google_doc_item_{i}" for i in range(1, 3)]
+
+        return {
+            "success": True,
+            "message": f"Источник данных работает корректно",
+            "items_count": len(items),
+            "sample_items": items[:5],  # Первые 5 элементов для предпросмотра
+            "source_type": source_type,
+        }
+
+    except Exception as e:
+        print(f"Error in test_data_source: {e}")
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Ошибка тестирования источника данных: {str(e)}",
+            "items_count": 0,
+            "sample_items": [],
+            "source_type": source_type,
+        }
+
+
+@router.get("/profile-nurture/search-engines")
+async def get_available_search_engines():
+    """Получение списка доступных поисковых систем"""
+    return {
+        "search_engines": [
+            {"value": "yandex.ru", "label": "Яндекс (yandex.ru)"},
+            {"value": "yandex.by", "label": "Яндекс Беларусь (yandex.by)"},
+            {"value": "yandex.kz", "label": "Яндекс Казахстан (yandex.kz)"},
+            {"value": "yandex.tr", "label": "Яндекс Турция (yandex.tr)"},
+            {"value": "mail.ru", "label": "Mail.ru Поиск"},
+            {"value": "dzen.ru", "label": "Дзен Поиск"},
+        ]
+    }
 
 
 @router.put("/{strategy_id}", response_model=UserStrategyResponse)

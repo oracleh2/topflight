@@ -66,10 +66,8 @@ class StrategyService:
     async def get_user_strategies(
         self, user_id: str, strategy_type: Optional[str] = None
     ) -> List[Dict]:
-        """Получение пользовательских стратегий"""
-        query = select(UserStrategy).where(
-            and_(UserStrategy.user_id == user_id, UserStrategy.is_active == True)
-        )
+        """Получение всех стратегий пользователя"""
+        query = select(UserStrategy).where(UserStrategy.user_id == user_id)
 
         if strategy_type:
             query = query.where(UserStrategy.strategy_type == strategy_type)
@@ -80,7 +78,9 @@ class StrategyService:
         return [
             {
                 "id": str(strategy.id),
-                "user_id": strategy.user_id,
+                "user_id": str(
+                    strategy.user_id
+                ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
                 "template_id": (
                     str(strategy.template_id) if strategy.template_id else None
                 ),
@@ -110,7 +110,9 @@ class StrategyService:
         return [
             {
                 "id": str(source.id),
-                "strategy_id": str(source.strategy_id),
+                "strategy_id": str(
+                    source.strategy_id
+                ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
                 "source_type": source.source_type,
                 "source_url": source.source_url,
                 "file_path": source.file_path,
@@ -148,7 +150,9 @@ class StrategyService:
 
         return {
             "id": str(strategy.id),
-            "user_id": strategy.user_id,
+            "user_id": str(
+                strategy.user_id
+            ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
             "template_id": str(strategy.template_id) if strategy.template_id else None,
             "name": strategy.name,
             "strategy_type": strategy.strategy_type,
@@ -175,7 +179,9 @@ class StrategyService:
 
         return {
             "id": str(strategy.id),
-            "user_id": strategy.user_id,
+            "user_id": str(
+                strategy.user_id
+            ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
             "template_id": str(strategy.template_id) if strategy.template_id else None,
             "name": strategy.name,
             "strategy_type": strategy.strategy_type,
@@ -216,19 +222,28 @@ class StrategyService:
 
                 setattr(strategy, field, value)
 
-        strategy.updated_at = datetime.now(timezone.utc)
-
+        strategy.updated_at = datetime.utcnow()
         await self.session.commit()
-        await self.session.refresh(strategy)
 
-        logger.info("Updated user strategy", user_id=user_id, strategy_id=strategy_id)
+        logger.info(
+            "Updated user strategy",
+            user_id=user_id,
+            strategy_id=strategy_id,
+        )
 
         return {
             "id": str(strategy.id),
+            "user_id": str(
+                strategy.user_id
+            ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
+            "template_id": str(strategy.template_id) if strategy.template_id else None,
             "name": strategy.name,
             "strategy_type": strategy.strategy_type,
             "config": strategy.config,
+            "created_at": strategy.created_at,
             "updated_at": strategy.updated_at,
+            "is_active": strategy.is_active,
+            "data_sources": await self._get_strategy_data_sources(strategy_id),
         }
 
     async def delete_user_strategy(self, strategy_id: str, user_id: str) -> bool:
@@ -619,11 +634,25 @@ class StrategyService:
 
         return {
             "id": str(assignment.id),
-            "user_id": assignment.user_id,
-            "domain_id": assignment.domain_id,
-            "warmup_strategy_id": assignment.warmup_strategy_id,
-            "position_check_strategy_id": assignment.position_check_strategy_id,
-            "profile_nurture_strategy_id": assignment.profile_nurture_strategy_id,
+            "user_id": str(
+                assignment.user_id
+            ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
+            "domain_id": str(assignment.domain_id) if assignment.domain_id else None,
+            "warmup_strategy_id": (
+                str(assignment.warmup_strategy_id)
+                if assignment.warmup_strategy_id
+                else None
+            ),
+            "position_check_strategy_id": (
+                str(assignment.position_check_strategy_id)
+                if assignment.position_check_strategy_id
+                else None
+            ),
+            "profile_nurture_strategy_id": (
+                str(assignment.profile_nurture_strategy_id)
+                if assignment.profile_nurture_strategy_id
+                else None
+            ),
             "created_at": assignment.created_at,
         }
 
@@ -642,11 +671,27 @@ class StrategyService:
         return [
             {
                 "id": str(assignment.id),
-                "user_id": assignment.user_id,
-                "domain_id": assignment.domain_id,
-                "warmup_strategy_id": assignment.warmup_strategy_id,
-                "position_check_strategy_id": assignment.position_check_strategy_id,
-                "profile_nurture_strategy_id": assignment.profile_nurture_strategy_id,
+                "user_id": str(
+                    assignment.user_id
+                ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
+                "domain_id": (
+                    str(assignment.domain_id) if assignment.domain_id else None
+                ),
+                "warmup_strategy_id": (
+                    str(assignment.warmup_strategy_id)
+                    if assignment.warmup_strategy_id
+                    else None
+                ),
+                "position_check_strategy_id": (
+                    str(assignment.position_check_strategy_id)
+                    if assignment.position_check_strategy_id
+                    else None
+                ),
+                "profile_nurture_strategy_id": (
+                    str(assignment.profile_nurture_strategy_id)
+                    if assignment.profile_nurture_strategy_id
+                    else None
+                ),
                 "created_at": assignment.created_at,
             }
             for assignment in assignments
