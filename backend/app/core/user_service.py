@@ -174,9 +174,16 @@ class UserService:
         """Аутентифицирует пользователя и создает токены"""
         try:
             user = await AuthService.authenticate_user(self.session, email, password)
+            print(f"DEBUG: User found: {user is not None}")
 
             if not user:
+                print("DEBUG: User not found")
                 return {"success": False, "errors": ["Неверный email или пароль"]}
+
+            print(f"DEBUG: User active: {user.is_active}")
+            print(f"DEBUG: Password hash exists: {bool(user.password_hash)}")
+
+            # Проверка пароля
 
             # Создаем токены
             token_data = {"sub": str(user.id), "email": user.email}

@@ -55,39 +55,29 @@ from .strategies import (
     StrategyExecutionLog,
 )
 
+from .alerts import AlertRule, AlertHistory, DebugVNCSession
+
+
 # Экспортируем все модели
 __all__ = [
     "Base",
     # User models
     "User",
-    "TariffPlan",
     "UserBalance",
     "BalanceTransaction",
-    # Закомментировал старую модель Region
-    # "Region",
-    "YandexRegion",
     "UserDomain",
     "UserKeyword",
     "UserDomainSettings",
     "UserServerPreferences",
+    "YandexRegion",
     # Profile models
     "Profile",
     "ProfileFingerprint",
     "ProfileLifecycle",
-    "ServerConfig",
-    "WorkerNode",
-    "DeviceType",
     # Task models
     "Task",
     "ParseResult",
     "PositionHistory",
-    # Proxy models
-    "ProjectProxy",
-    "ProxyImportHistory",
-    "ProfileProxyAssignment",
-    "ProxyType",
-    "ProxyProtocol",
-    "ProxyStatus",
     # Analytics models
     "SystemConfig",
     "SystemLog",
@@ -99,13 +89,79 @@ __all__ = [
     "UserActivityStats",
     "TaskAnalytics",
     "ParsingAnalytics",
+    # Infrastructure models
     "BackupSchedule",
     "BackupHistory",
     "CacheSettings",
-    # Strategies models
+    "ServerConfig",
+    "WorkerNode",
+    "TariffPlan",
+    # Proxy models
+    "ProjectProxy",
+    "ProxyImportHistory",
+    "ProfileProxyAssignment",
+    # Strategy models
     "StrategyTemplate",
     "UserStrategy",
     "StrategyDataSource",
     "ProjectStrategy",
     "StrategyExecutionLog",
+    # Alert and Debug models
+    "AlertRule",
+    "AlertHistory",
+    "DebugVNCSession",
 ]
+
+# __all__ = [
+#     "Base",
+#     # User models
+#     "User",
+#     "TariffPlan",
+#     "UserBalance",
+#     "BalanceTransaction",
+#     # Закомментировал старую модель Region
+#     # "Region",
+#     "YandexRegion",
+#     "UserDomain",
+#     "UserKeyword",
+#     "UserDomainSettings",
+#     "UserServerPreferences",
+#     # Profile models
+#     "Profile",
+#     "ProfileFingerprint",
+#     "ProfileLifecycle",
+#     "ServerConfig",
+#     "WorkerNode",
+#     "DeviceType",
+#     # Task models
+#     "Task",
+#     "ParseResult",
+#     "PositionHistory",
+#     # Proxy models
+#     "ProjectProxy",
+#     "ProxyImportHistory",
+#     "ProfileProxyAssignment",
+#     "ProxyType",
+#     "ProxyProtocol",
+#     "ProxyStatus",
+#     # Analytics models
+#     "SystemConfig",
+#     "SystemLog",
+#     "AuditTrail",
+#     "ConfigChangesLog",
+#     "FinancialTransactionsLog",
+#     "PerformanceMetrics",
+#     "BusinessMetrics",
+#     "UserActivityStats",
+#     "TaskAnalytics",
+#     "ParsingAnalytics",
+#     "BackupSchedule",
+#     "BackupHistory",
+#     "CacheSettings",
+#     # Strategies models
+#     "StrategyTemplate",
+#     "UserStrategy",
+#     "StrategyDataSource",
+#     "ProjectStrategy",
+#     "StrategyExecutionLog",
+# ]

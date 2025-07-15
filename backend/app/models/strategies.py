@@ -62,6 +62,11 @@ class UserStrategy(Base):
         foreign_keys="ProjectStrategy.position_check_strategy_id",
         back_populates="position_check_strategy",
     )
+    profile_nurture_projects = relationship(
+        "ProjectStrategy",
+        foreign_keys="ProjectStrategy.profile_nurture_strategy_id",
+        back_populates="profile_nurture_strategy",
+    )
 
 
 class StrategyDataSource(Base):
@@ -95,6 +100,9 @@ class ProjectStrategy(Base):
     domain_id = Column(UUID(as_uuid=True), ForeignKey("user_domains.id"))
     warmup_strategy_id = Column(UUID(as_uuid=True), ForeignKey("user_strategies.id"))
     position_check_strategy_id = Column(
+        UUID(as_uuid=True), ForeignKey("user_strategies.id")
+    )
+    profile_nurture_strategy_id = Column(
         UUID(as_uuid=True), ForeignKey("user_strategies.id")
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now())

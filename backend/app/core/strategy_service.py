@@ -2,6 +2,7 @@
 import json
 import random
 import asyncio
+import aiohttp
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +24,11 @@ from app.schemas.strategies import UserStrategyCreate, DataSourceCreate
 from app.constants.strategies import (
     StrategyType as StrategyTypeConstants,
     DataSourceType as DataSourceTypeConstants,
+    ProfileNurtureType as ProfileNurtureTypeConstants,
+    QuerySourceType as QuerySourceTypeConstants,
     validate_warmup_config,
     validate_position_check_config,
+    validate_profile_nurture_config,
 )
 
 logger = structlog.get_logger()
@@ -86,35 +90,38 @@ class StrategyService:
                 "created_at": strategy.created_at,
                 "updated_at": strategy.updated_at,
                 "is_active": strategy.is_active,
+                "data_sources": await self._get_strategy_data_sources(str(strategy.id)),
             }
             for strategy in strategies
         ]
 
-    async def get_user_strategy_by_id(
-        self, strategy_id: str, user_id: str
-    ) -> Optional[Dict]:
-        """Получение стратегии по ID"""
+    async def _get_strategy_data_sources(self, strategy_id: str) -> List[Dict]:
+        """Получение источников данных для стратегии"""
         result = await self.session.execute(
-            select(UserStrategy).where(
-                and_(UserStrategy.id == strategy_id, UserStrategy.user_id == user_id)
+            select(StrategyDataSource).where(
+                and_(
+                    StrategyDataSource.strategy_id == strategy_id,
+                    StrategyDataSource.is_active == True,
+                )
             )
         )
-        strategy = result.scalar_one_or_none()
+        sources = result.scalars().all()
 
-        if not strategy:
-            return None
-
-        return {
-            "id": str(strategy.id),
-            "user_id": strategy.user_id,
-            "template_id": str(strategy.template_id) if strategy.template_id else None,
-            "name": strategy.name,
-            "strategy_type": strategy.strategy_type,
-            "config": strategy.config,
-            "created_at": strategy.created_at,
-            "updated_at": strategy.updated_at,
-            "is_active": strategy.is_active,
-        }
+        return [
+            {
+                "id": str(source.id),
+                "strategy_id": str(source.strategy_id),
+                "source_type": source.source_type,
+                "source_url": source.source_url,
+                "file_path": source.file_path,
+                "items_count": (
+                    len(source.data_content.split("\n")) if source.data_content else 0
+                ),
+                "is_active": source.is_active,
+                "created_at": source.created_at,
+            }
+            for source in sources
+        ]
 
     async def create_user_strategy(
         self, user_id: str, strategy_data: UserStrategyCreate
@@ -141,10 +148,42 @@ class StrategyService:
 
         return {
             "id": str(strategy.id),
+            "user_id": strategy.user_id,
+            "template_id": str(strategy.template_id) if strategy.template_id else None,
             "name": strategy.name,
             "strategy_type": strategy.strategy_type,
             "config": strategy.config,
             "created_at": strategy.created_at,
+            "updated_at": strategy.updated_at,
+            "is_active": strategy.is_active,
+            "data_sources": [],
+        }
+
+    async def get_user_strategy_by_id(
+        self, strategy_id: str, user_id: str
+    ) -> Optional[Dict]:
+        """Получение стратегии пользователя по ID"""
+        result = await self.session.execute(
+            select(UserStrategy).where(
+                and_(UserStrategy.id == strategy_id, UserStrategy.user_id == user_id)
+            )
+        )
+        strategy = result.scalar_one_or_none()
+
+        if not strategy:
+            return None
+
+        return {
+            "id": str(strategy.id),
+            "user_id": strategy.user_id,
+            "template_id": str(strategy.template_id) if strategy.template_id else None,
+            "name": strategy.name,
+            "strategy_type": strategy.strategy_type,
+            "config": strategy.config,
+            "created_at": strategy.created_at,
+            "updated_at": strategy.updated_at,
+            "is_active": strategy.is_active,
+            "data_sources": await self._get_strategy_data_sources(strategy_id),
         }
 
     async def update_user_strategy(
@@ -170,6 +209,10 @@ class StrategyService:
                         value = validate_warmup_config(value)
                     elif strategy.strategy_type == StrategyTypeConstants.POSITION_CHECK:
                         value = validate_position_check_config(value)
+                    elif (
+                        strategy.strategy_type == StrategyTypeConstants.PROFILE_NURTURE
+                    ):
+                        value = validate_profile_nurture_config(value)
 
                 setattr(strategy, field, value)
 
@@ -221,11 +264,11 @@ class StrategyService:
         elif source_data.source_type == DataSourceTypeConstants.GOOGLE_SHEETS:
             data_content = await self._import_from_google_sheets(source_data.source_url)
         elif source_data.source_type == DataSourceTypeConstants.GOOGLE_DOCS:
-            # Удаляем вызов несуществующего метода
-            raise Exception("Google Docs импорт пока не поддерживается")
-        elif source_data.source_type == DataSourceTypeConstants.MANUAL_LIST:
+            data_content = await self._import_from_google_docs(source_data.source_url)
+        else:
             data_content = source_data.data_content
 
+        # Создаем источник данных
         data_source = StrategyDataSource(
             strategy_id=strategy_id,
             source_type=source_data.source_type,
@@ -246,115 +289,155 @@ class StrategyService:
 
         return {
             "id": str(data_source.id),
+            "strategy_id": str(data_source.strategy_id),
             "source_type": data_source.source_type,
+            "source_url": data_source.source_url,
+            "file_path": data_source.file_path,
             "items_count": len(data_content.split("\n")) if data_content else 0,
+            "is_active": data_source.is_active,
+            "created_at": data_source.created_at,
         }
+
+    async def _import_from_url(self, url: str) -> str:
+        """Импорт данных по URL"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        # Парсим содержимое в зависимости от типа
+                        if url.endswith(".json"):
+                            data = json.loads(content)
+                            if isinstance(data, list):
+                                return "\n".join(str(item) for item in data)
+                            else:
+                                return content
+                        else:
+                            # Обрабатываем как текст, разделенный переносами строк
+                            lines = [
+                                line.strip()
+                                for line in content.split("\n")
+                                if line.strip()
+                            ]
+                            return "\n".join(lines)
+                    else:
+                        raise Exception(
+                            f"HTTP {response.status}: {await response.text()}"
+                        )
+        except Exception as e:
+            logger.error("Failed to import from URL", url=url, error=str(e))
+            raise Exception(f"Ошибка импорта из URL: {str(e)}")
+
+    async def _import_from_google_sheets(self, url: str) -> str:
+        """Импорт данных из Google Sheets"""
+        try:
+            # Конвертируем URL в CSV export format
+            if "/edit" in url:
+                csv_url = url.replace("/edit", "/export?format=csv")
+            else:
+                csv_url = f"{url}/export?format=csv"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    csv_url, timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        # Парсим CSV и извлекаем данные
+                        import csv
+                        import io
+
+                        reader = csv.reader(io.StringIO(content))
+                        data_items = []
+                        for row in reader:
+                            if row:  # Пропускаем пустые строки
+                                data_items.extend(
+                                    [cell.strip() for cell in row if cell.strip()]
+                                )
+
+                        return "\n".join(data_items)
+                    else:
+                        raise Exception(
+                            f"HTTP {response.status}: {await response.text()}"
+                        )
+        except Exception as e:
+            logger.error("Failed to import from Google Sheets", url=url, error=str(e))
+            raise Exception(f"Ошибка импорта из Google Sheets: {str(e)}")
+
+    async def _import_from_google_docs(self, url: str) -> str:
+        """Импорт данных из Google Docs"""
+        try:
+            # Конвертируем URL в текстовый export format
+            if "/edit" in url:
+                txt_url = url.replace("/edit", "/export?format=txt")
+            else:
+                txt_url = f"{url}/export?format=txt"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    txt_url, timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        # Парсим текст и извлекаем строки
+                        lines = [
+                            line.strip() for line in content.split("\n") if line.strip()
+                        ]
+                        return "\n".join(lines)
+                    else:
+                        raise Exception(
+                            f"HTTP {response.status}: {await response.text()}"
+                        )
+        except Exception as e:
+            logger.error("Failed to import from Google Docs", url=url, error=str(e))
+            raise Exception(f"Ошибка импорта из Google Docs: {str(e)}")
 
     async def save_uploaded_file(
         self, user_id: str, strategy_id: str, filename: str, content: bytes
     ) -> str:
         """Сохранение загруженного файла"""
-        # Создаем директорию для файлов пользователя
-        user_dir = Path(f"uploads/users/{user_id}/strategies/{strategy_id}")
-        user_dir.mkdir(parents=True, exist_ok=True)
+        # Создаем директорию для пользователя
+        upload_dir = Path(f"uploads/strategies/{user_id}/{strategy_id}")
+        upload_dir.mkdir(parents=True, exist_ok=True)
 
         # Генерируем уникальное имя файла
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        file_path = user_dir / f"{timestamp}_{filename}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = upload_dir / f"{timestamp}_{filename}"
 
         # Сохраняем файл
         with open(file_path, "wb") as f:
             f.write(content)
 
         logger.info(
-            "File uploaded for strategy",
+            "Saved uploaded file",
             user_id=user_id,
             strategy_id=strategy_id,
-            filename=filename,
             file_path=str(file_path),
         )
 
         return str(file_path)
 
-    async def _import_from_url(self, url: str) -> str:
-        """Импорт данных по URL"""
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-
-            content_type = response.headers.get("content-type", "").lower()
-
-            if "text/plain" in content_type:
-                return response.text
-            elif "text/csv" in content_type:
-                lines = response.text.split("\n")
-                return "\n".join([line.strip() for line in lines if line.strip()])
-            else:
-                # Пытаемся парсить как текст
-                return response.text
-
-        except Exception as e:
-            logger.error("Failed to import from URL", url=url, error=str(e))
-            raise Exception(f"Ошибка импорта из URL: {str(e)}")
-
-    async def _import_from_google_sheets(self, url: str) -> str:
-        """Импорт из Google Sheets"""
-        try:
-            # Извлекаем ID таблицы из URL
-            sheet_id = self._extract_google_sheet_id(url)
-            if not sheet_id:
-                raise Exception("Неверный формат URL Google Sheets")
-
-            # Формируем URL для CSV экспорта
-            csv_url = (
-                f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-            )
-
-            response = requests.get(csv_url, timeout=30)
-            response.raise_for_status()
-
-            # Парсим CSV и извлекаем первый столбец
-            lines = response.text.split("\n")
-            data_items = []
-
-            for line in lines:
-                if line.strip():
-                    # Берем первый столбец (до первой запятой)
-                    first_column = line.split(",")[0].strip('"')
-                    if first_column:
-                        data_items.append(first_column)
-
-            return "\n".join(data_items)
-
-        except Exception as e:
-            logger.error("Failed to import from Google Sheets", url=url, error=str(e))
-            raise Exception(f"Ошибка импорта из Google Sheets: {str(e)}")
-
-    def _extract_google_sheet_id(self, url: str) -> Optional[str]:
-        """Извлечение ID Google Sheets из URL"""
-        import re
-
-        pattern = r"/spreadsheets/d/([a-zA-Z0-9-_]+)"
-        match = re.search(pattern, url)
-        return match.group(1) if match else None
-
     async def execute_strategy(
-        self, strategy_id: str, user_id: str, params: Dict = {}
+        self, strategy_id: str, user_id: str, params: Dict[str, Any] = None
     ) -> Dict:
-        """Выполнение стратегии"""
+        """Запуск выполнения стратегии"""
+        if params is None:
+            params = {}
 
         # Получаем стратегию
-        strategy_result = await self.session.execute(
+        result = await self.session.execute(
             select(UserStrategy).where(
                 and_(UserStrategy.id == strategy_id, UserStrategy.user_id == user_id)
             )
         )
-        strategy = strategy_result.scalar_one_or_none()
+        strategy = result.scalar_one_or_none()
 
         if not strategy:
             raise Exception("Стратегия не найдена")
 
-        # Получаем источники данных - исправляем тип
+        # Получаем источники данных
         sources_result = await self.session.execute(
             select(StrategyDataSource).where(
                 and_(
@@ -363,7 +446,7 @@ class StrategyService:
                 )
             )
         )
-        sources = list(sources_result.scalars().all())  # Конвертируем в список
+        sources = list(sources_result.scalars().all())
 
         # Подготавливаем данные для выполнения
         execution_data = await self._prepare_execution_data(strategy, sources, params)
@@ -373,6 +456,10 @@ class StrategyService:
             task = await self._create_warmup_task(strategy, execution_data, user_id)
         elif strategy.strategy_type == StrategyTypeConstants.POSITION_CHECK:
             task = await self._create_position_check_task(
+                strategy, execution_data, user_id
+            )
+        elif strategy.strategy_type == StrategyTypeConstants.PROFILE_NURTURE:
+            task = await self._create_profile_nurture_task(
                 strategy, execution_data, user_id
             )
         else:
@@ -403,6 +490,106 @@ class StrategyService:
             "execution_log_id": str(execution_log.id),
         }
 
+    async def _prepare_execution_data(
+        self, strategy: UserStrategy, sources: List[StrategyDataSource], params: Dict
+    ) -> Dict:
+        """Подготовка данных для выполнения стратегии"""
+        execution_data = {
+            "strategy_config": strategy.config,
+            "sources": [],
+            "custom_params": params,
+        }
+
+        # Подготавливаем источники данных
+        for source in sources:
+            source_data = {
+                "id": str(source.id),
+                "type": source.source_type,
+                "url": source.source_url,
+                "data": source.data_content,
+            }
+
+            # Для URL источников в нагуле профиля - получаем свежие данные
+            if (
+                strategy.strategy_type == StrategyTypeConstants.PROFILE_NURTURE
+                and source.source_type == DataSourceTypeConstants.URL_IMPORT
+            ):
+                config = strategy.config
+                queries_source = config.get("queries_source", {})
+
+                if queries_source.get("refresh_on_each_cycle", False):
+                    try:
+                        fresh_data = await self._import_from_url(source.source_url)
+                        source_data["data"] = fresh_data
+                        logger.info(
+                            "Refreshed data from URL for profile nurture",
+                            source_id=str(source.id),
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to refresh URL data, using cached",
+                            source_id=str(source.id),
+                            error=str(e),
+                        )
+
+            execution_data["sources"].append(source_data)
+
+        return execution_data
+
+    async def _create_warmup_task(
+        self, strategy: UserStrategy, execution_data: Dict, user_id: str
+    ) -> Task:
+        """Создание задачи прогрева"""
+        task = Task(
+            task_type="warmup",
+            parameters=execution_data,
+            user_id=user_id,
+            priority=2,  # Средний приоритет
+            status="pending",
+        )
+
+        self.session.add(task)
+        await self.session.commit()
+        await self.session.refresh(task)
+
+        return task
+
+    async def _create_position_check_task(
+        self, strategy: UserStrategy, execution_data: Dict, user_id: str
+    ) -> Task:
+        """Создание задачи проверки позиций"""
+        task = Task(
+            task_type="position_check",
+            parameters=execution_data,
+            user_id=user_id,
+            priority=1,  # Высокий приоритет
+            status="pending",
+        )
+
+        self.session.add(task)
+        await self.session.commit()
+        await self.session.refresh(task)
+
+        return task
+
+    async def _create_profile_nurture_task(
+        self, strategy: UserStrategy, execution_data: Dict, user_id: str
+    ) -> Task:
+        """Создание задачи нагула профиля"""
+        task = Task(
+            task_type="profile_nurture",
+            parameters=execution_data,
+            user_id=user_id,
+            priority=3,  # Низкий приоритет (фоновая задача)
+            status="pending",
+        )
+
+        self.session.add(task)
+        await self.session.commit()
+        await self.session.refresh(task)
+
+        return task
+
     async def assign_strategies_to_project(
         self, user_id: str, assignment_data: Dict
     ) -> Dict:
@@ -415,6 +602,9 @@ class StrategyService:
             position_check_strategy_id=assignment_data.get(
                 "position_check_strategy_id"
             ),
+            profile_nurture_strategy_id=assignment_data.get(
+                "profile_nurture_strategy_id"
+            ),
         )
 
         self.session.add(assignment)
@@ -422,33 +612,25 @@ class StrategyService:
         await self.session.refresh(assignment)
 
         logger.info(
-            "Strategies assigned to project",
+            "Assigned strategies to project",
             user_id=user_id,
-            assignment_id=str(assignment.id),
             domain_id=assignment_data.get("domain_id"),
         )
 
         return {
             "id": str(assignment.id),
-            "user_id": user_id,
-            "domain_id": str(assignment.domain_id) if assignment.domain_id else None,
-            "warmup_strategy_id": (
-                str(assignment.warmup_strategy_id)
-                if assignment.warmup_strategy_id
-                else None
-            ),
-            "position_check_strategy_id": (
-                str(assignment.position_check_strategy_id)
-                if assignment.position_check_strategy_id
-                else None
-            ),
+            "user_id": assignment.user_id,
+            "domain_id": assignment.domain_id,
+            "warmup_strategy_id": assignment.warmup_strategy_id,
+            "position_check_strategy_id": assignment.position_check_strategy_id,
+            "profile_nurture_strategy_id": assignment.profile_nurture_strategy_id,
+            "created_at": assignment.created_at,
         }
 
     async def get_project_strategies(
         self, user_id: str, domain_id: Optional[str] = None
     ) -> List[Dict]:
         """Получение назначенных стратегий для проектов"""
-
         query = select(ProjectStrategy).where(ProjectStrategy.user_id == user_id)
 
         if domain_id:
@@ -461,215 +643,53 @@ class StrategyService:
             {
                 "id": str(assignment.id),
                 "user_id": assignment.user_id,
-                "domain_id": (
-                    str(assignment.domain_id) if assignment.domain_id else None
-                ),
-                "warmup_strategy_id": (
-                    str(assignment.warmup_strategy_id)
-                    if assignment.warmup_strategy_id
-                    else None
-                ),
-                "position_check_strategy_id": (
-                    str(assignment.position_check_strategy_id)
-                    if assignment.position_check_strategy_id
-                    else None
-                ),
+                "domain_id": assignment.domain_id,
+                "warmup_strategy_id": assignment.warmup_strategy_id,
+                "position_check_strategy_id": assignment.position_check_strategy_id,
+                "profile_nurture_strategy_id": assignment.profile_nurture_strategy_id,
                 "created_at": assignment.created_at,
             }
             for assignment in assignments
         ]
 
-    async def get_strategy_execution_logs(
-        self, strategy_id: str, user_id: str, limit: int = 50
-    ) -> List[Dict]:
-        """Получение логов выполнения стратегии"""
+    async def get_nurture_queries_from_source(
+        self, source: Dict, config: Dict
+    ) -> List[str]:
+        """Получение запросов для нагула из источника данных"""
+        queries = []
 
-        # Сначала проверяем доступ к стратегии
-        strategy = await self.get_user_strategy_by_id(strategy_id, user_id)
-        if not strategy:
-            raise Exception("Стратегия не найдена")
+        source_type = source.get("type")
+        source_data = source.get("data", "")
+        source_url = source.get("url")
 
-        result = await self.session.execute(
-            select(StrategyExecutionLog)
-            .where(StrategyExecutionLog.strategy_id == strategy_id)
-            .order_by(StrategyExecutionLog.started_at.desc())
-            .limit(limit)
-        )
-        logs = result.scalars().all()
+        if source_type == DataSourceTypeConstants.URL_IMPORT:
+            # Для URL источников - всегда получаем свежие данные
+            queries_source = config.get("queries_source", {})
+            if queries_source.get("refresh_on_each_cycle", False) and source_url:
+                try:
+                    fresh_data = await self._import_from_url(source_url)
+                    source_data = fresh_data
+                except Exception as e:
+                    logger.warning(
+                        "Failed to refresh URL data", url=source_url, error=str(e)
+                    )
 
-        return [
-            {
-                "id": str(log.id),
-                "strategy_id": str(log.strategy_id),
-                "task_id": str(log.task_id) if log.task_id else None,
-                "execution_type": log.execution_type,
-                "profile_id": str(log.profile_id) if log.profile_id else None,
-                "parameters": log.parameters,
-                "result": log.result,
-                "status": log.status,
-                "started_at": log.started_at,
-                "completed_at": log.completed_at,
-                "error_message": log.error_message,
-            }
-            for log in logs
-        ]
+        if source_data:
+            queries = [line.strip() for line in source_data.split("\n") if line.strip()]
 
-    async def _prepare_execution_data(
-        self, strategy: UserStrategy, sources: List[StrategyDataSource], params: Dict
-    ) -> Dict:
-        """Подготовка данных для выполнения стратегии"""
+        return queries
 
-        # Собираем все данные из источников
-        all_data = []
+    async def get_random_query_from_nurture_source(
+        self, sources: List[Dict], config: Dict
+    ) -> Optional[str]:
+        """Получение случайного запроса из источников нагула"""
+        all_queries = []
+
         for source in sources:
-            if source.data_content:
-                items = [
-                    item.strip()
-                    for item in source.data_content.split("\n")
-                    if item.strip()
-                ]
-                all_data.extend(items)
+            queries = await self.get_nurture_queries_from_source(source, config)
+            all_queries.extend(queries)
 
-        # Формируем конфигурацию выполнения
-        execution_config = strategy.config.copy()
-        execution_config.update(params)
+        if all_queries:
+            return random.choice(all_queries)
 
-        if strategy.strategy_type == StrategyTypeConstants.WARMUP:
-            return await self._prepare_warmup_data(all_data, execution_config)
-        elif strategy.strategy_type == StrategyTypeConstants.POSITION_CHECK:
-            return await self._prepare_position_check_data(all_data, execution_config)
-
-        return {"data": all_data, "config": execution_config}
-
-    async def _prepare_warmup_data(self, data: List[str], config: Dict) -> Dict:
-        """Подготовка данных для прогрева профилей"""
-
-        warmup_type = config.get("type", "mixed")
-        proportions = config.get(
-            "proportions", {"direct_visits": 5, "search_visits": 1}
-        )
-
-        # Разделяем данные на сайты и ключевые слова
-        sites = []
-        keywords = []
-
-        for item in data:
-            if item.startswith(("http://", "https://", "www.")):
-                sites.append(item)
-            else:
-                keywords.append(item)
-
-        # Формируем план действий согласно пропорциям
-        actions = []
-
-        if warmup_type in ["direct", "mixed"]:
-            direct_count = proportions.get("direct_visits", 5)
-            for _ in range(direct_count):
-                if sites:
-                    actions.append(
-                        {"type": "direct_visit", "target": random.choice(sites)}
-                    )
-
-        if warmup_type in ["search", "mixed"]:
-            search_count = proportions.get("search_visits", 1)
-            search_config = config.get("search_config", {})
-
-            for _ in range(search_count):
-                if keywords:
-                    actions.append(
-                        {
-                            "type": "search_visit",
-                            "keyword": random.choice(keywords),
-                            "yandex_domain": random.choice(
-                                search_config.get("yandex_domains", ["yandex.ru"])
-                            ),
-                        }
-                    )
-
-        # Перемешиваем действия
-        random.shuffle(actions)
-
-        return {
-            "actions": actions,
-            "config": config,
-            "total_sites": len(sites),
-            "total_keywords": len(keywords),
-        }
-
-    async def _prepare_position_check_data(self, data: List[str], config: Dict) -> Dict:
-        """Подготовка данных для проверки позиций"""
-
-        # data должна содержать ключевые слова для проверки
-        keywords = [item.strip() for item in data if item.strip()]
-
-        search_config = config.get("search_config", {})
-
-        return {
-            "keywords": keywords,
-            "pages_to_check": search_config.get("pages_to_check", 10),
-            "yandex_domain": search_config.get("yandex_domain", "yandex.ru"),
-            "device_types": search_config.get("device_types", ["desktop"]),
-            "regions": search_config.get("regions", ["213"]),
-            "behavior": config.get("behavior", {}),
-            "config": config,
-        }
-
-    async def _create_warmup_task(
-        self, strategy: UserStrategy, execution_data: Dict, user_id: str
-    ) -> Task:
-        """Создание задачи прогрева профилей"""
-
-        task = Task(
-            task_type="strategy_warmup",
-            status="pending",
-            priority=5,
-            user_id=user_id,
-            parameters={
-                "strategy_id": str(strategy.id),
-                "user_id": user_id,
-                "execution_data": execution_data,
-            },
-        )
-
-        self.session.add(task)
-        await self.session.commit()
-        await self.session.refresh(task)
-
-        logger.info(
-            "Strategy warmup task created",
-            task_id=str(task.id),
-            strategy_id=str(strategy.id),
-            user_id=user_id,
-        )
-
-        return task
-
-    async def _create_position_check_task(
-        self, strategy: UserStrategy, execution_data: Dict, user_id: str
-    ) -> Task:
-        """Создание задачи проверки позиций по стратегии"""
-
-        task = Task(
-            task_type="strategy_position_check",
-            status="pending",
-            priority=5,
-            user_id=user_id,
-            parameters={
-                "strategy_id": str(strategy.id),
-                "user_id": user_id,
-                "execution_data": execution_data,
-            },
-        )
-
-        self.session.add(task)
-        await self.session.commit()
-        await self.session.refresh(task)
-
-        logger.info(
-            "Strategy position check task created",
-            task_id=str(task.id),
-            strategy_id=str(strategy.id),
-            user_id=user_id,
-        )
-
-        return task
+        return None

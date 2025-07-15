@@ -29,11 +29,65 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_active = Column(Boolean, default=True)
 
     # Relationships (только существующие, без стратегий)
+    # domains = relationship("UserDomain", back_populates="user")
+    # transactions = relationship(
+    #     "BalanceTransaction",
+    #     back_populates="user",
+    #     foreign_keys="BalanceTransaction.user_id",  # Явно указываем используемый внешний ключ
+    # )
     domains = relationship("UserDomain", back_populates="user")
+    keywords = relationship("UserKeyword", back_populates="user")
+    domain_settings = relationship("UserDomainSettings", back_populates="user")
+    # balance = relationship("UserBalance", back_populates="user", uselist=False)
     transactions = relationship(
         "BalanceTransaction",
+        foreign_keys="BalanceTransaction.user_id",
         back_populates="user",
-        foreign_keys="BalanceTransaction.user_id",  # Явно указываем используемый внешний ключ
+    )
+    position_history = relationship("PositionHistory", back_populates="user")
+    server_preferences = relationship("UserServerPreferences", back_populates="user")
+    activity_stats = relationship("UserActivityStats", back_populates="user")
+
+    # НОВЫЕ relationships для алертов и VNC (с исправленными overlaps)
+    created_alert_rules = relationship(
+        "AlertRule",
+        foreign_keys="AlertRule.created_by_user_id",
+        overlaps="created_by_user",
+    )
+    acknowledged_alerts = relationship(
+        "AlertHistory",
+        foreign_keys="AlertHistory.acknowledged_by_user_id",
+        overlaps="acknowledged_by_user",
+    )
+    vnc_sessions = relationship("DebugVNCSession", back_populates="user")
+
+    # Existing relationships для analytics моделей (с исправленными overlaps)
+    system_logs = relationship("SystemLog", back_populates="user")
+    audit_entries = relationship(
+        "AuditTrail", foreign_keys="AuditTrail.user_id", overlaps="user"
+    )
+    admin_audit_entries = relationship(
+        "AuditTrail", foreign_keys="AuditTrail.admin_id", overlaps="admin"
+    )
+    config_changes = relationship(
+        "ConfigChangesLog",
+        foreign_keys="ConfigChangesLog.changed_by_user_id",
+        overlaps="changed_by_user",
+    )
+    admin_config_changes = relationship(
+        "ConfigChangesLog",
+        foreign_keys="ConfigChangesLog.changed_by_admin_id",
+        overlaps="changed_by_admin",
+    )
+    financial_logs = relationship(
+        "FinancialTransactionsLog",
+        foreign_keys="FinancialTransactionsLog.user_id",
+        overlaps="user",
+    )
+    admin_financial_logs = relationship(
+        "FinancialTransactionsLog",
+        foreign_keys="FinancialTransactionsLog.admin_id",
+        overlaps="admin",
     )
 
 
