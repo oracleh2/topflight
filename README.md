@@ -43,7 +43,7 @@ sudo apt install -y python3.11 python3.11-venv python3.11-dev build-essential
 
 ```bash
 cd ~
-git clone <repository-url> topflight
+git clone https://github.com/oracleh2/topflight.git topflight
 cd topflight
 ```
 
@@ -120,7 +120,7 @@ cd /var/www/topflight
 
 ```bash
 # Клонирование
-git clone <repository-url> .
+git clone https://github.com/oracleh2/topflight.git .
 
 # Установка зависимостей
 cd backend
