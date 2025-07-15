@@ -6,6 +6,7 @@ Create Date: 2025-07-15 15:16:57.882330
 
 """
 
+from datetime import datetime
 from typing import Sequence, Union
 
 from alembic import op
@@ -192,17 +193,36 @@ def upgrade():
         else:
             # Если региона с кодом 213 нет, создаем его
             print("Creating default Moscow region...")
+
+            # ИСПРАВЛЕНО: Добавляем created_at и updated_at
             create_moscow_query = text(
                 """
-                                       INSERT INTO yandex_regions (id, region_code, region_name, country_code, region_type, is_active)
-                                       VALUES (:id, '213', 'Москва', 'RU', 'city', true)
-                                       """
+                INSERT INTO yandex_regions (id, region_code, region_name, country_code, region_type, is_active, created_at, updated_at)
+                VALUES (:id, '213', 'Москва', 'RU', 'city', true, :created_at, :updated_at)
+                """
             )
 
             moscow_id = str(uuid.uuid4())
-            connection.execute(create_moscow_query, {"id": moscow_id})
+            current_time = datetime.utcnow()
+
+            connection.execute(
+                create_moscow_query,
+                {
+                    "id": moscow_id,
+                    "created_at": current_time,
+                    "updated_at": current_time,
+                },
+            )
 
             # Теперь устанавливаем этот регион для доменов без региона
+            default_region_query = text(
+                """
+                UPDATE user_domains
+                SET region_id = :region_id
+                WHERE region_id IS NULL
+                """
+            )
+
             connection.execute(default_region_query, {"region_id": moscow_id})
 
         # Шаг 5: Делаем поле region_id обязательным в user_domains
