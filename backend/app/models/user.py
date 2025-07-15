@@ -105,7 +105,10 @@ class UserKeyword(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("user_domains.id"), nullable=False
     )
     keyword = Column(String(500), nullable=False)
-    region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
+    # region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
+    region_id = Column(
+        UUID(as_uuid=True), ForeignKey("yandex_regions.id"), nullable=False
+    )
 
     # НОВОЕ ПОЛЕ - тип устройства для этого ключевого слова
     device_type = Column(Enum(DeviceType), nullable=False, default=DeviceType.DESKTOP)
@@ -116,7 +119,8 @@ class UserKeyword(Base, UUIDMixin, TimestampMixin):
     # Relationships
     user = relationship("User")
     domain = relationship("UserDomain", back_populates="keywords")
-    region = relationship("Region")
+    # region = relationship("Region")
+    region = relationship("YandexRegion")
 
 
 class UserDomainSettings(Base, UUIDMixin, TimestampMixin):
@@ -126,7 +130,10 @@ class UserDomainSettings(Base, UUIDMixin, TimestampMixin):
     domain_id = Column(
         UUID(as_uuid=True), ForeignKey("user_domains.id"), nullable=False
     )
-    region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
+    # region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
+    region_id = Column(
+        UUID(as_uuid=True), ForeignKey("yandex_regions.id"), nullable=False
+    )
 
     # НОВОЕ ПОЛЕ - тип устройства для парсинга
     device_type = Column(Enum(DeviceType), nullable=False, default=DeviceType.DESKTOP)
@@ -138,7 +145,8 @@ class UserDomainSettings(Base, UUIDMixin, TimestampMixin):
     # Relationships
     user = relationship("User")
     domain = relationship("UserDomain", back_populates="settings")
-    region = relationship("Region")
+    # region = relationship("Region")
+    region = relationship("YandexRegion")
 
 
 class UserServerPreferences(Base, UUIDMixin, TimestampMixin):

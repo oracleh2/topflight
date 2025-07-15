@@ -345,8 +345,10 @@ class TaskManager:
         # Получаем ключевые слова
         result = await session.execute(
             select(UserKeyword)
-            .options(selectinload(UserKeyword.domain), selectinload(UserKeyword.region))
-            .where(UserKeyword.id.in_(keyword_ids))
+            # .options(selectinload(UserKeyword.domain), selectinload(UserKeyword.region))
+            .options(
+                selectinload(UserKeyword.domain), selectinload(UserKeyword.region)
+            ).where(UserKeyword.id.in_(keyword_ids))
         )
         keywords = result.scalars().all()
 

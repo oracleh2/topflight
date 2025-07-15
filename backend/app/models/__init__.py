@@ -45,6 +45,8 @@ from .user import (
     UserServerPreferences,
 )
 
+from .yandex_region import YandexRegion
+
 from .strategies import (
     StrategyTemplate,
     UserStrategy,
@@ -61,7 +63,9 @@ __all__ = [
     "TariffPlan",
     "UserBalance",
     "BalanceTransaction",
-    "Region",
+    # Закомментировал старую модель Region
+    # "Region",
+    "YandexRegion",
     "UserDomain",
     "UserKeyword",
     "UserDomainSettings",

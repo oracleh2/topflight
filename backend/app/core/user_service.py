@@ -17,6 +17,7 @@ from app.models import (
     UserKeyword,
     UserDomainSettings,
     Region,
+    YandexRegion,
     DeviceType,
 )
 from .auth import AuthService, PasswordValidator, EmailValidator
@@ -407,8 +408,10 @@ class UserService:
         keyword: str,
         region_id: str,
         device_type: DeviceType = DeviceType.DESKTOP,
+        check_frequency: str = "daily",
+        is_active: bool = True,
     ) -> Dict[str, Any]:
-        """Добавляет ключевое слово"""
+        """Добавляет ключевое слово с дополнительными параметрами"""
         try:
             # Проверяем принадлежность домена пользователю
             domain = await self.session.execute(
@@ -422,20 +425,18 @@ class UserService:
                 return {"success": False, "errors": ["Домен не найден"]}
 
             # Проверяем существование региона
-            region = await self.session.get(Region, region_id)
+            region = await self.session.get(YandexRegion, region_id)
             if not region:
                 return {"success": False, "errors": ["Регион не найден"]}
 
             # Проверяем существует ли уже такое ключевое слово
             existing_keyword = await self.session.execute(
                 select(UserKeyword).where(
-                    and_(
-                        UserKeyword.user_id == user_id,
-                        UserKeyword.domain_id == domain_id,
-                        UserKeyword.keyword == keyword.strip(),
-                        UserKeyword.region_id == region_id,
-                        UserKeyword.device_type == device_type,
-                    )
+                    UserKeyword.user_id == user_id,
+                    UserKeyword.domain_id == domain_id,
+                    UserKeyword.keyword == keyword.strip(),
+                    UserKeyword.region_id == region_id,
+                    UserKeyword.device_type == device_type,
                 )
             )
 
@@ -454,33 +455,28 @@ class UserService:
                 keyword=keyword.strip(),
                 region_id=region_id,
                 device_type=device_type,
-                is_active=True,
+                check_frequency=check_frequency,
+                is_active=is_active,
             )
 
             self.session.add(user_keyword)
             await self.session.commit()
             await self.session.refresh(user_keyword)
 
-            logger.info(
-                "Keyword added",
-                user_id=user_id,
-                keyword=keyword,
-                domain_id=domain_id,
-                device_type=device_type.value,
-            )
+            logger.info(f"Keyword added: {keyword} for user {user_id}")
 
             return {
                 "success": True,
                 "keyword_id": str(user_keyword.id),
                 "keyword": keyword,
                 "device_type": device_type.value,
+                "check_frequency": check_frequency,
+                "is_active": is_active,
             }
 
         except Exception as e:
             await self.session.rollback()
-            logger.error(
-                "Failed to add keyword", user_id=user_id, keyword=keyword, error=str(e)
-            )
+            logger.error(f"Failed to add keyword: {str(e)}")
             return {"success": False, "errors": ["Ошибка добавления ключевого слова"]}
 
     async def get_domain_keywords(

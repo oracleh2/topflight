@@ -49,6 +49,7 @@ from .models import (
     BackupSchedule,
     BackupHistory,
     CacheSettings,
+    YandexRegion,
 )
 from .models.base import Base
 
