@@ -343,7 +343,7 @@ socks5://192.168.1.3:1080:user:pass"
                 <div
                     v-for="proxy in proxies"
                     :key="proxy.id"
-                    class="p-4 hover:bg-gray-50"
+                    class="p-4 hover:bg-gray-50 relative"
                 >
                     <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-3">
@@ -381,10 +381,83 @@ socks5://192.168.1.3:1080:user:pass"
                             <button
                                 type="button"
                                 @click="testProxy(proxy)"
-                                class="text-blue-600 hover:text-blue-900 text-sm font-medium"
+                                :disabled="testingProxy === proxy.id"
+                                class="text-blue-600 hover:text-blue-900 text-sm font-medium disabled:opacity-50"
                             >
-                                Тест
+                                <span v-if="testingProxy === proxy.id">
+                                    <ArrowPathIcon class="h-4 w-4 animate-spin inline"/>
+                                </span>
+                                <span v-else>Тест</span>
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Tooltip для результатов теста -->
+                    <div v-if="testResults[proxy.id] && showTooltip === proxy.id"
+                         class="absolute z-10 top-0 right-0 mt-12 mr-4 w-80 bg-white rounded-lg shadow-lg border border-gray-200 p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-semibold text-gray-900">Результат теста</h4>
+                            <button @click="hideTooltip" class="text-gray-400 hover:text-gray-600">
+                                <XMarkIcon class="h-4 w-4"/>
+                            </button>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="flex items-center">
+                                <div :class="[
+                                    'h-2 w-2 rounded-full mr-2',
+                                    testResults[proxy.id].success ? 'bg-green-500' : 'bg-red-500'
+                                ]"></div>
+                                <span class="text-sm" :class="[
+                                    testResults[proxy.id].success ? 'text-green-700' : 'text-red-700'
+                                ]">
+                                    {{ testResults[proxy.id].message }}
+                                </span>
+                            </div>
+
+                            <div v-if="testResults[proxy.id].success"
+                                 class="space-y-1 text-xs text-gray-600">
+                                <div class="flex justify-between">
+                                    <span>Внешний IP:</span>
+                                    <span class="font-medium">{{
+                                            testResults[proxy.id].external_ip
+                                        }}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Местоположение:</span>
+                                    <span class="font-medium">{{
+                                            testResults[proxy.id].location || 'Неизвестно'
+                                        }}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Провайдер:</span>
+                                    <span class="font-medium">{{
+                                            testResults[proxy.id].provider || 'Неизвестно'
+                                        }}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Время ответа:</span>
+                                    <span class="font-medium">{{
+                                            testResults[proxy.id].response_time
+                                        }}мс</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Страна:</span>
+                                    <span class="font-medium">{{
+                                            testResults[proxy.id].country || 'Неизвестно'
+                                        }}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Регион:</span>
+                                    <span class="font-medium">{{
+                                            testResults[proxy.id].region || 'Неизвестно'
+                                        }}</span>
+                                </div>
+                            </div>
+
+                            <div v-else class="text-xs text-red-600">
+                                <strong>Ошибка:</strong> {{ testResults[proxy.id].error }}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -637,7 +710,8 @@ import {
     ArrowUpTrayIcon,
     LinkIcon,
     DocumentIcon,
-    TableCellsIcon
+    TableCellsIcon,
+    XMarkIcon
 } from '@heroicons/vue/24/outline'
 import {useStrategiesStore} from '@/stores/strategies'
 import {api} from '@/api'
@@ -658,6 +732,18 @@ interface ProxySource {
     created_at: string
     proxy_count: number
     source_url: string
+}
+
+interface TestResult {
+    success: boolean
+    message: string
+    external_ip?: string
+    location?: string
+    provider?: string
+    response_time?: number
+    country?: string
+    region?: string
+    error?: string
 }
 
 // Props
@@ -703,6 +789,11 @@ const loadingDynamic = ref(false)
 const refreshingPreview = ref<string | null>(null)
 const expandedSources = ref<string[]>([])
 const sourcePreviewData = ref<Record<string, any[]>>({})
+
+// Test proxy data
+const testingProxy = ref<string | null>(null)
+const testResults = ref<Record<string, TestResult>>({})
+const showTooltip = ref<string | null>(null)
 
 // Computed
 const importTypes = computed(() => [
@@ -754,7 +845,6 @@ const dynamicSources = computed(() => {
     return proxySources.value.filter(source => isDynamicSource(source.source_type))
 })
 
-
 // Methods
 const isDynamicSource = (sourceType: string): boolean => {
     return ['url_import', 'google_docs', 'google_sheets'].includes(sourceType)
@@ -764,10 +854,7 @@ const refreshDynamicSource = async (sourceId: string) => {
     refreshingSource.value = sourceId
     try {
         // Здесь можно добавить API вызов для обновления динамического источника
-        // await api.refreshStrategyProxySource(props.strategyId, sourceId)
         console.log('Refreshing dynamic source:', sourceId)
-
-        // Перезагружаем статистику
         await loadProxyStats()
     } catch (error) {
         console.error('Error refreshing dynamic source:', error)
@@ -785,8 +872,6 @@ const refreshDynamicProxies = async () => {
     loadingDynamic.value = true
     try {
         await loadProxyStats()
-
-        // Обновляем превью для всех развернутых источников
         for (const sourceId of expandedSources.value) {
             await refreshSourcePreview(sourceId)
         }
@@ -801,15 +886,12 @@ const refreshSourcePreview = async (sourceId: string) => {
     refreshingPreview.value = sourceId
     try {
         const response = await api.getStrategyProxySourcePreview(props.strategyId, sourceId)
-
         if (response.data.success) {
             sourcePreviewData.value[sourceId] = response.data.proxies
         } else {
             console.error('Preview error:', response.data.error)
-            // Показать ошибку пользователю
             sourcePreviewData.value[sourceId] = []
         }
-
     } catch (error) {
         console.error('Error refreshing source preview:', error)
         sourcePreviewData.value[sourceId] = []
@@ -824,13 +906,11 @@ const toggleSourcePreview = (sourceId: string) => {
         expandedSources.value.splice(index, 1)
     } else {
         expandedSources.value.push(sourceId)
-        // Автоматически загружаем превью при разворачивании
         if (!sourcePreviewData.value[sourceId]) {
             refreshSourcePreview(sourceId)
         }
     }
 }
-
 
 const handleFileSelect = (event: Event) => {
     const target = event.target as HTMLInputElement
@@ -850,24 +930,19 @@ const importProxies = async () => {
             case 'manual_list':
                 result = await api.importStrategyProxiesManual(props.strategyId, manualProxyText.value)
                 break
-
             case 'file_upload':
                 if (!selectedFile.value) return
                 result = await api.importStrategyProxiesFile(props.strategyId, selectedFile.value)
                 break
-
             case 'url_import':
                 result = await api.importStrategyProxiesUrl(props.strategyId, importUrl.value)
                 break
-
             case 'google_docs':
                 result = await api.importStrategyProxiesGoogleDoc(props.strategyId, googleDocUrl.value)
                 break
-
             case 'google_sheets':
                 result = await api.importStrategyProxiesGoogleSheets(props.strategyId, googleSheetsUrl.value)
                 break
-
             default:
                 throw new Error('Неподдерживаемый тип импорта')
         }
@@ -875,16 +950,13 @@ const importProxies = async () => {
         importResult.value = result.data
 
         if (result.data.success) {
-            // Очищаем форму
             resetImportForm()
-            // Перезагружаем данные
             await Promise.all([
                 loadProxies(),
                 loadProxyStats(),
                 loadProxySources()
             ])
         }
-
     } catch (error) {
         console.error('Error importing proxies:', error)
         importResult.value = {
@@ -944,12 +1016,36 @@ const updateProxySettings = async () => {
 }
 
 const testProxy = async (proxy: ProxyItem) => {
+    testingProxy.value = proxy.id
     try {
-        await strategiesStore.testStrategyProxy(props.strategyId, proxy.id)
-        console.log('Proxy test completed')
+        const result = await strategiesStore.testStrategyProxy(props.strategyId, proxy.id)
+        testResults.value[proxy.id] = result.test_result
+        showTooltip.value = proxy.id
+
+        // Автоматически скрыть тултип через 10 секунд
+        setTimeout(() => {
+            if (showTooltip.value === proxy.id) {
+                showTooltip.value = null
+            }
+        }, 10000)
+
+        // Обновляем список прокси для отображения новых статусов
+        await loadProxies()
     } catch (error) {
         console.error('Error testing proxy:', error)
+        testResults.value[proxy.id] = {
+            success: false,
+            message: 'Ошибка тестирования прокси',
+            error: 'Не удалось выполнить тест'
+        }
+        showTooltip.value = proxy.id
+    } finally {
+        testingProxy.value = null
     }
+}
+
+const hideTooltip = () => {
+    showTooltip.value = null
 }
 
 const deleteProxySource = async (sourceId: string) => {
@@ -1021,5 +1117,15 @@ watch([proxies, dynamicSources], ([staticProxies, dynamicSrcs]) => {
 // Сброс результата импорта при смене типа
 watch(selectedImportType, () => {
     importResult.value = null
+})
+
+// Скрыть тултип при клике вне его
+onMounted(() => {
+    document.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement
+        if (!target.closest('.relative')) {
+            showTooltip.value = null
+        }
+    })
 })
 </script>

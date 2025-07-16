@@ -1,5 +1,8 @@
 # backend/app/api/strategy_proxy.py
-from typing import List, Optional
+import asyncio
+from typing import List, Optional, Dict, Any
+
+import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -332,3 +335,207 @@ async def delete_strategy_proxy_source(
     await session.commit()
 
     return {"success": True, "message": "Источник прокси удален"}
+
+
+@router.post("/{strategy_id}/proxy/{proxy_id}/test")
+async def test_strategy_proxy(
+    strategy_id: str,
+    proxy_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Тестирование прокси стратегии"""
+
+    service = StrategyProxyService(session)
+
+    # Получаем данные прокси
+    proxy = await service.get_proxy_by_id(strategy_id, proxy_id)
+
+    if not proxy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Прокси не найдена"
+        )
+
+    # Тестируем прокси
+    test_result = await _test_proxy_connection(proxy)
+
+    # Обновляем статистику прокси
+    await service.update_proxy_status(
+        strategy_id,
+        proxy_id,
+        "active" if test_result["success"] else "inactive",
+        test_result.get("response_time"),
+    )
+
+    return {
+        "success": True,
+        "test_result": test_result,
+        "proxy": {
+            "id": proxy_id,
+            "host": proxy["host"],
+            "port": proxy["port"],
+            "protocol": proxy["protocol"],
+        },
+    }
+
+
+async def _test_proxy_connection(proxy: Dict[str, Any]) -> Dict[str, Any]:
+    """Тестирует соединение через прокси"""
+
+    try:
+        # Формируем URL прокси
+        proxy_url = _build_proxy_url(proxy)
+
+        # Создаем коннектор с прокси
+        connector = aiohttp.TCPConnector(
+            limit=1,
+            limit_per_host=1,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+        )
+
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout, trust_env=True
+        ) as session:
+
+            start_time = asyncio.get_event_loop().time()
+
+            # Используем несколько сервисов для получения IP информации
+            test_results = await _perform_proxy_tests(session, proxy_url)
+
+            end_time = asyncio.get_event_loop().time()
+            response_time = int((end_time - start_time) * 1000)  # в миллисекундах
+
+            if test_results["success"]:
+                return {
+                    "success": True,
+                    "response_time": response_time,
+                    "external_ip": test_results["external_ip"],
+                    "location": test_results["location"],
+                    "provider": test_results["provider"],
+                    "country": test_results["country"],
+                    "region": test_results["region"],
+                    "city": test_results["city"],
+                    "message": "Прокси работает корректно",
+                }
+            else:
+                return {
+                    "success": False,
+                    "response_time": response_time,
+                    "error": test_results["error"],
+                    "message": "Прокси не работает",
+                }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Ошибка тестирования прокси",
+        }
+
+
+def _build_proxy_url(proxy: Dict[str, Any]) -> str:
+    """Создает URL для прокси"""
+
+    protocol = proxy.get("protocol", "http")
+    host = proxy["host"]
+    port = proxy["port"]
+    username = proxy.get("username")
+    password = proxy.get("password")
+
+    if username and password:
+        return f"{protocol}://{username}:{password}@{host}:{port}"
+    else:
+        return f"{protocol}://{host}:{port}"
+
+
+async def _perform_proxy_tests(
+    session: aiohttp.ClientSession, proxy_url: str
+) -> Dict[str, Any]:
+    """Выполняет тесты прокси через различные сервисы"""
+
+    # Список сервисов для тестирования
+    test_services = [
+        {
+            "name": "httpbin",
+            "url": "http://httpbin.org/ip",
+            "parser": lambda data: {"ip": data.get("origin", "").split(",")[0].strip()},
+        },
+        {
+            "name": "ipinfo",
+            "url": "http://ipinfo.io/json",
+            "parser": lambda data: {
+                "ip": data.get("ip"),
+                "country": data.get("country"),
+                "region": data.get("region"),
+                "city": data.get("city"),
+                "provider": (
+                    data.get("org", "").split(" ", 1)[-1] if data.get("org") else None
+                ),
+            },
+        },
+        {
+            "name": "ipapi",
+            "url": "http://ip-api.com/json",
+            "parser": lambda data: {
+                "ip": data.get("query"),
+                "country": data.get("country"),
+                "region": data.get("regionName"),
+                "city": data.get("city"),
+                "provider": data.get("isp"),
+            },
+        },
+    ]
+
+    results = {}
+
+    for service in test_services:
+        try:
+            async with session.get(
+                service["url"],
+                proxy=proxy_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                },
+            ) as response:
+
+                if response.status == 200:
+                    data = await response.json()
+                    parsed_data = service["parser"](data)
+                    results[service["name"]] = parsed_data
+
+        except Exception as e:
+            results[service["name"]] = {"error": str(e)}
+
+    # Анализируем результаты
+    if not results:
+        return {"success": False, "error": "Все сервисы тестирования недоступны"}
+
+    # Берем самый полный результат
+    best_result = None
+    for service_name, result in results.items():
+        if "error" not in result and result.get("ip"):
+            if not best_result or len(result) > len(best_result):
+                best_result = result
+
+    if not best_result:
+        return {
+            "success": False,
+            "error": "Не удалось получить информацию об IP через прокси",
+        }
+
+    return {
+        "success": True,
+        "external_ip": best_result.get("ip"),
+        "country": best_result.get("country"),
+        "region": best_result.get("region"),
+        "city": best_result.get("city"),
+        "provider": best_result.get("provider"),
+        "location": f"{best_result.get('city', '')}, {best_result.get('region', '')}, {best_result.get('country', '')}".strip(
+            ", "
+        ),
+        "test_services": list(results.keys()),
+        "raw_results": results,
+    }

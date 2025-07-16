@@ -12,8 +12,8 @@ from ..models.strategy_proxy import (
     StrategyProxySource,
     StrategyProxyAssignment,
     StrategyProxyRotation,
+    StrategyProxy,
 )
-from ..models.proxy import ProjectProxy
 from ..models.profile import Profile
 from ..core.proxy_service import ProxyParser
 from ..schemas.strategy_proxy import (
@@ -88,7 +88,7 @@ class StrategyProxyService:
                     message=f"Динамический источник сохранен. Найдено {len(parsed_proxies)} прокси.",
                 )
 
-            # Для статических источников (manual_list, file_upload) импортируем как раньше
+            # Для статических источников (manual_list, file_upload) импортируем прокси
             else:
                 raw_data = proxy_data or file_content
 
@@ -105,29 +105,13 @@ class StrategyProxyService:
                         success=False, errors=["Не удалось распарсить ни одной прокси"]
                     )
 
-                # Импортируем прокси в основную таблицу
-                domain_id = await self._get_strategy_domain_id(strategy_id)
-                user_id = strategy.user_id
-
+                # Импортируем прокси в таблицу StrategyProxy
                 successfully_imported = 0
                 errors = []
 
                 for proxy_data in parsed_proxies:
                     try:
                         # Проверяем, существует ли уже такая прокси
-                        from ..models.strategy_proxy import StrategyProxy
-
-                        # existing_proxy = await self.session.execute(
-                        #     select(ProjectProxy).where(
-                        #         and_(
-                        #             ProjectProxy.user_id == user_id,
-                        #             ProjectProxy.domain_id == domain_id,
-                        #             ProjectProxy.host == proxy_data["host"],
-                        #             ProjectProxy.port == proxy_data["port"],
-                        #         )
-                        #     )
-                        # )
-
                         existing_proxy = await self.session.execute(
                             select(StrategyProxy).where(
                                 and_(
@@ -142,18 +126,6 @@ class StrategyProxyService:
                             continue  # Прокси уже существует
 
                         # Создаем новую прокси
-                        # new_proxy = ProjectProxy(
-                        #     user_id=user_id,
-                        #     domain_id=domain_id,
-                        #     proxy_type="warmup",
-                        #     host=proxy_data["host"],
-                        #     port=proxy_data["port"],
-                        #     username=proxy_data.get("username"),
-                        #     password=proxy_data.get("password"),
-                        #     protocol=proxy_data.get("protocol", "http"),
-                        #     status="active",
-                        # )
-
                         new_proxy = StrategyProxy(
                             strategy_id=strategy_id,
                             source_id=proxy_source.id,
@@ -219,15 +191,15 @@ class StrategyProxyService:
                     all_proxies.extend(parsed_proxies)
 
             elif source.source_type in ["manual_list", "file_upload"]:
-                # Для статических источников получаем прокси из БД
+                # Для статических источников получаем прокси из таблицы StrategyProxy
                 static_proxies = await self.get_strategy_proxies(strategy_id)
                 all_proxies.extend(
                     [
                         {
                             "host": proxy["host"],
                             "port": proxy["port"],
-                            "username": None,  # Для статических прокси из БД
-                            "password": None,
+                            "username": proxy["username"],
+                            "password": proxy["password"],
                             "protocol": proxy["protocol"],
                         }
                         for proxy in static_proxies
@@ -260,7 +232,7 @@ class StrategyProxyService:
     ) -> StrategyProxyStatsResponse:
         """Получение статистики прокси стратегии"""
 
-        # Получаем статические прокси
+        # Получаем статические прокси из таблицы StrategyProxy
         static_proxies = await self.get_strategy_proxies(strategy_id)
 
         # Получаем динамические источники
@@ -316,28 +288,11 @@ class StrategyProxyService:
         )
 
     async def get_strategy_proxies(self, strategy_id: str) -> List[Dict[str, Any]]:
-        """Получение прокси для стратегии"""
+        """Получение прокси для стратегии из таблицы StrategyProxy"""
 
-        # Получаем домен стратегии
-        domain_id = await self._get_strategy_domain_id(strategy_id)
-
-        # Получаем стратегию
-        strategy_result = await self.session.execute(
-            select(UserStrategy).where(UserStrategy.id == strategy_id)
-        )
-        strategy = strategy_result.scalar_one_or_none()
-
-        if not strategy:
-            return []
-
-        # Получаем прокси домена
+        # Получаем прокси стратегии
         proxies_result = await self.session.execute(
-            select(ProjectProxy).where(
-                and_(
-                    ProjectProxy.user_id == strategy.user_id,
-                    ProjectProxy.domain_id == domain_id,
-                )
-            )
+            select(StrategyProxy).where(StrategyProxy.strategy_id == strategy_id)
         )
         proxies = proxies_result.scalars().all()
 
@@ -346,13 +301,19 @@ class StrategyProxyService:
                 "id": str(proxy.id),
                 "host": proxy.host,
                 "port": proxy.port,
+                "username": proxy.username,
+                "password": proxy.password,
                 "protocol": proxy.protocol,
                 "status": proxy.status,
                 "success_rate": proxy.success_rate,
                 "total_uses": proxy.total_uses,
-                "last_check": (
-                    proxy.last_check.isoformat() if proxy.last_check else None
+                "successful_uses": proxy.successful_uses,
+                "failed_uses": proxy.failed_uses,
+                "response_time": proxy.response_time,
+                "last_used_at": (
+                    proxy.last_used_at.isoformat() if proxy.last_used_at else None
                 ),
+                "created_at": proxy.created_at.isoformat(),
             }
             for proxy in proxies
         ]
@@ -375,8 +336,14 @@ class StrategyProxyService:
 
         selected_proxy = random.choice(active_proxies)
 
-        # Обновляем профиль
-        await self.session.execute(select(Profile).where(Profile.id == profile_id))
+        # Проверяем, существует ли профиль
+        profile_result = await self.session.execute(
+            select(Profile).where(Profile.id == profile_id)
+        )
+        profile = profile_result.scalar_one_or_none()
+
+        if not profile:
+            return None
 
         # Создаем назначение
         assignment = StrategyProxyAssignment(
@@ -410,7 +377,7 @@ class StrategyProxyService:
             )
             self.session.add(rotation)
 
-        # Получаем следующую прокси
+        # Получаем доступные прокси стратегии
         available_proxies = await self.get_strategy_proxies(strategy_id)
         active_proxies = [p for p in available_proxies if p["status"] == "active"]
 
@@ -469,12 +436,6 @@ class StrategyProxyService:
             return await self._fetch_data_from_url(export_url)
         return None
 
-    async def _get_strategy_domain_id(self, strategy_id: str) -> Optional[str]:
-        """Получение domain_id для стратегии"""
-        # Это может потребовать дополнительной логики в зависимости от архитектуры
-        # Пока возвращаем None, но нужно будет реализовать
-        return None
-
     async def get_proxy_for_profile_execution(
         self, strategy_id: str, profile_id: str
     ) -> Optional[Dict[str, Any]]:
@@ -484,7 +445,7 @@ class StrategyProxyService:
         proxy = await self.get_random_proxy_from_strategy(strategy_id)
 
         if proxy:
-            # Можно добавить логирование использования
+            # Добавляем логирование использования
             await self._log_proxy_usage(strategy_id, profile_id, proxy)
 
         return proxy
@@ -493,8 +454,24 @@ class StrategyProxyService:
         self, strategy_id: str, profile_id: str, proxy_data: Dict[str, Any]
     ):
         """Логирование использования прокси"""
-        # Можно добавить запись в таблицу использования прокси
-        pass
+
+        # Находим StrategyProxy для обновления статистики
+        proxy_result = await self.session.execute(
+            select(StrategyProxy).where(
+                and_(
+                    StrategyProxy.strategy_id == strategy_id,
+                    StrategyProxy.host == proxy_data["host"],
+                    StrategyProxy.port == proxy_data["port"],
+                )
+            )
+        )
+        proxy = proxy_result.scalar_one_or_none()
+
+        if proxy:
+            # Обновляем статистику использования
+            proxy.total_uses += 1
+            proxy.last_used_at = datetime.utcnow()
+            await self.session.commit()
 
     async def get_source_preview(
         self, strategy_id: str, source_id: str
@@ -547,3 +524,149 @@ class StrategyProxyService:
 
         except Exception as e:
             return {"success": False, "error": f"Ошибка получения превью: {str(e)}"}
+
+    async def update_proxy_status(
+        self,
+        strategy_id: str,
+        proxy_id: str,
+        status: str,
+        response_time: Optional[int] = None,
+    ) -> bool:
+        """Обновление статуса прокси"""
+
+        try:
+            # Получаем прокси
+            proxy_result = await self.session.execute(
+                select(StrategyProxy).where(
+                    and_(
+                        StrategyProxy.id == proxy_id,
+                        StrategyProxy.strategy_id == strategy_id,
+                    )
+                )
+            )
+            proxy = proxy_result.scalar_one_or_none()
+
+            if not proxy:
+                return False
+
+            # Обновляем статус
+            proxy.status = status
+            if response_time is not None:
+                proxy.response_time = response_time
+
+            await self.session.commit()
+            return True
+
+        except Exception as e:
+            await self.session.rollback()
+            print(f"Error updating proxy status: {e}")
+            return False
+
+    async def update_proxy_success_rate(
+        self, strategy_id: str, proxy_id: str, success: bool
+    ) -> bool:
+        """Обновление статистики успешности прокси"""
+
+        try:
+            # Получаем прокси
+            proxy_result = await self.session.execute(
+                select(StrategyProxy).where(
+                    and_(
+                        StrategyProxy.id == proxy_id,
+                        StrategyProxy.strategy_id == strategy_id,
+                    )
+                )
+            )
+            proxy = proxy_result.scalar_one_or_none()
+
+            if not proxy:
+                return False
+
+            # Обновляем статистику
+            if success:
+                proxy.successful_uses += 1
+            else:
+                proxy.failed_uses += 1
+
+            # Пересчитываем success_rate
+            total_attempts = proxy.successful_uses + proxy.failed_uses
+            if total_attempts > 0:
+                proxy.success_rate = int((proxy.successful_uses / total_attempts) * 100)
+
+            await self.session.commit()
+            return True
+
+        except Exception as e:
+            await self.session.rollback()
+            print(f"Error updating proxy success rate: {e}")
+            return False
+
+    async def delete_proxy(self, strategy_id: str, proxy_id: str) -> bool:
+        """Удаление прокси из стратегии"""
+
+        try:
+            # Получаем прокси
+            proxy_result = await self.session.execute(
+                select(StrategyProxy).where(
+                    and_(
+                        StrategyProxy.id == proxy_id,
+                        StrategyProxy.strategy_id == strategy_id,
+                    )
+                )
+            )
+            proxy = proxy_result.scalar_one_or_none()
+
+            if not proxy:
+                return False
+
+            # Удаляем прокси
+            await self.session.delete(proxy)
+            await self.session.commit()
+            return True
+
+        except Exception as e:
+            await self.session.rollback()
+            print(f"Error deleting proxy: {e}")
+            return False
+
+    async def get_proxy_by_id(
+        self, strategy_id: str, proxy_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Получение прокси по ID"""
+
+        try:
+            proxy_result = await self.session.execute(
+                select(StrategyProxy).where(
+                    and_(
+                        StrategyProxy.id == proxy_id,
+                        StrategyProxy.strategy_id == strategy_id,
+                    )
+                )
+            )
+            proxy = proxy_result.scalar_one_or_none()
+
+            if not proxy:
+                return None
+
+            return {
+                "id": str(proxy.id),
+                "host": proxy.host,
+                "port": proxy.port,
+                "username": proxy.username,
+                "password": proxy.password,
+                "protocol": proxy.protocol,
+                "status": proxy.status,
+                "success_rate": proxy.success_rate,
+                "total_uses": proxy.total_uses,
+                "successful_uses": proxy.successful_uses,
+                "failed_uses": proxy.failed_uses,
+                "response_time": proxy.response_time,
+                "last_used_at": (
+                    proxy.last_used_at.isoformat() if proxy.last_used_at else None
+                ),
+                "created_at": proxy.created_at.isoformat(),
+            }
+
+        except Exception as e:
+            print(f"Error getting proxy by ID: {e}")
+            return None

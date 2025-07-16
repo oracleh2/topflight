@@ -680,8 +680,21 @@ export const useStrategiesStore = defineStore('strategies', () => {
             const response = await api.post(`/strategies-proxy/${strategyId}/proxy/${proxyId}/test`)
             return response.data
         } catch (err: any) {
-            error.value = err.response?.data?.detail || 'Ошибка тестирования прокси'
-            throw err
+            // Обрабатываем ошибки тестирования
+            const errorMessage = err.response?.data?.detail || 'Ошибка тестирования прокси'
+
+            // Возвращаем структуру ошибки для единообразия
+            return {
+                success: false,
+                test_result: {
+                    success: false,
+                    message: errorMessage,
+                    error: errorMessage
+                },
+                proxy: {
+                    id: proxyId
+                }
+            }
         }
     }
 
