@@ -89,6 +89,12 @@ class User(Base, UUIDMixin, TimestampMixin):
         foreign_keys="FinancialTransactionsLog.admin_id",
         overlaps="admin",
     )
+    strategies = relationship(
+        "UserStrategy", back_populates="user", cascade="all, delete-orphan"
+    )
+    project_strategies = relationship(
+        "ProjectStrategy", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class TariffPlan(Base, UUIDMixin, TimestampMixin):

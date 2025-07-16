@@ -57,7 +57,8 @@ services:
 
     # Main Xvfb Display
     xvfb-main:
-        image: topflight_xvfb
+        #        image: topflight_xvfb
+        image: eruvanos/xvfb
         build:
             context: ./docker/xvfb
             dockerfile: Dockerfile

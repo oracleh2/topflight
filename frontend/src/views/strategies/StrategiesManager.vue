@@ -195,6 +195,20 @@
                                                     </MenuItem>
                                                     <MenuItem v-slot="{ active }">
                                                         <button
+                                                            @click="manageProxies(strategy)"
+                                                            :class="[
+            active ? 'bg-gray-100 text-gray-900' : 'text-gray-700',
+            'group flex items-center px-4 py-2 text-sm w-full text-left'
+        ]"
+                                                        >
+                                                            <GlobeAltIcon
+                                                                class="mr-3 h-5 w-5 text-gray-400 group-hover:text-gray-500"
+                                                                aria-hidden="true"/>
+                                                            Управление прокси
+                                                        </button>
+                                                    </MenuItem>
+                                                    <MenuItem v-slot="{ active }">
+                                                        <button
                                                             @click="duplicateStrategy(strategy)"
                                                             :class="[
                                                                 active ? 'bg-gray-100 text-gray-900' : 'text-gray-700',
@@ -312,7 +326,8 @@
             :strategy="selectedStrategy"
             @close="showEditModal = false"
             @updated="handleStrategyUpdated"
-        />
+        >
+        </EditStrategyModal>
 
         <!-- Add Data Source Modal -->
         <AddDataSourceModal
@@ -320,6 +335,13 @@
             :strategy="selectedStrategy"
             @close="showAddDataSourceModal = false"
             @added="handleDataSourceAdded"
+        />
+
+        <!-- Proxy Manager Modal -->
+        <ProxyManagerModal
+            :is-open="showProxyManagerModal"
+            :strategy="selectedStrategy"
+            @close="showProxyManagerModal = false"
         />
     </div>
 </template>
@@ -337,16 +359,19 @@ import {
     PlayIcon,
     DocumentDuplicateIcon,
     TrashIcon,
-    DocumentIcon
+    DocumentIcon,
+    GlobeAltIcon
 
 } from '@heroicons/vue/24/outline'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import {useStrategiesStore} from '@/stores/strategies'
 import type {Strategy} from '@/stores/strategies'
 import CreateStrategyModal from '@/components/modals/CreateStrategyModal.vue'
-import EditStrategyModal from '@/components/modals/EditStrategyModal.vue'
+import EditStrategyModal from '@/components/strategies/EditStrategyModal.vue'
 import StrategyConfigSummary from '@/components/strategies/StrategyConfigSummary.vue'
 import AddDataSourceModal from '@/components/modals/AddDataSourceModal.vue'
+import StrategyProxyManager from '@/components/strategies/StrategyProxyManager.vue'
+import ProxyManagerModal from "@/components/strategies/ProxyManagerModal.vue";
 
 
 const strategiesStore = useStrategiesStore()
@@ -356,6 +381,7 @@ const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const selectedStrategy = ref<Strategy | null>(null)
 const showAddDataSourceModal = ref(false)
+const showProxyManagerModal = ref(false)
 
 const tabs = computed(() => [
     {
@@ -522,6 +548,11 @@ function handleDataSourceAdded() {
     showAddDataSourceModal.value = false
     selectedStrategy.value = null
     strategiesStore.fetchStrategies()
+}
+
+function manageProxies(strategy: Strategy) {
+    selectedStrategy.value = strategy
+    showProxyManagerModal.value = true
 }
 
 onMounted(async () => {

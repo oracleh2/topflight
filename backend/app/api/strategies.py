@@ -16,6 +16,8 @@ from app.database import get_session
 from app.dependencies import get_current_user
 from app.models import User
 
+router = APIRouter(prefix="/strategies", tags=["Strategies"])
+
 # Попробуем импортировать сервис и схемы с обработкой ошибок
 try:
     from app.core.strategy_service import StrategyService
@@ -104,9 +106,6 @@ except ImportError as e:
     class PositionCheckConfigCreate(BaseModel):
         check_frequency: str = "daily"
         max_pages: int = 10
-
-
-router = APIRouter(prefix="/strategies", tags=["Strategies"])
 
 
 @router.get("/health")

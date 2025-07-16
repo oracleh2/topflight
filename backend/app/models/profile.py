@@ -68,9 +68,19 @@ class Profile(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("project_proxies.id")
     )
 
+    assigned_strategy_proxy_id = Column(
+        UUID(as_uuid=True), ForeignKey("project_proxies.id"), nullable=True
+    )
+
     # Relationships
     assigned_warmup_proxy = relationship(
         "ProjectProxy", foreign_keys=[assigned_warmup_proxy_id]
+    )
+    assigned_strategy_proxy = relationship(
+        "ProjectProxy", foreign_keys=[assigned_strategy_proxy_id]
+    )
+    strategy_proxy_assignments = relationship(
+        "StrategyProxyAssignment", back_populates="profile"
     )
 
 

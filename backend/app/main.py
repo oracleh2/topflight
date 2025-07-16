@@ -3,7 +3,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.api.admin.debug import router as debug_router
-from .api import auth, domains, billing, tasks, proxies, strategies
+from .api import (
+    auth,
+    domains,
+    billing,
+    tasks,
+    proxies,
+    strategies,
+    profiles,
+    strategy_proxy,
+)
 from .config import settings
 
 # Настройка логирования
@@ -51,6 +60,8 @@ app.include_router(billing.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
 app.include_router(proxies.router, prefix="/api/v1")
 app.include_router(strategies.router, prefix="/api/v1")
+app.include_router(strategy_proxy.router, prefix="/api/v1")
+app.include_router(profiles.router, prefix="/api/v1")
 
 app.include_router(debug_router, prefix="/api/v1/admin")
 

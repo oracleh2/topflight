@@ -55,6 +55,12 @@ from .strategies import (
     StrategyExecutionLog,
 )
 
+from .strategy_proxy import (
+    StrategyProxySource,
+    StrategyProxyAssignment,
+    StrategyProxyRotation,
+)
+
 from .alerts import AlertRule, AlertHistory, DebugVNCSession
 
 
@@ -110,6 +116,10 @@ __all__ = [
     "AlertRule",
     "AlertHistory",
     "DebugVNCSession",
+    # Strategy proxy models
+    "StrategyProxySource",
+    "StrategyProxyAssignment",
+    "StrategyProxyRotation",
 ]
 
 # __all__ = [

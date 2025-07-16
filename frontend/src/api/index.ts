@@ -609,6 +609,71 @@ class ApiClient {
     async testGoogleDocsAccess(url: string) {
         return this.client.post('/strategies/test-google-docs', {url})
     }
+
+    // Strategy proxy management endpoints
+    async getStrategyProxies(strategyId: string) {
+        return this.client.get(`/strategies-proxy/${strategyId}/proxy`)
+    }
+
+    async getStrategyProxyStats(strategyId: string) {
+        return this.client.get(`/strategies-proxy/${strategyId}/proxy/stats`)
+    }
+
+    async getStrategyProxySources(strategyId: string) {
+        return this.client.get(`/strategies-proxy/${strategyId}/proxy/sources`)
+    }
+
+    async updateStrategyProxySettings(strategyId: string, settings: any) {
+        return this.client.patch(`/strategies-proxy/${strategyId}`, {
+            proxy_settings: settings
+        })
+    }
+
+    async importStrategyProxiesManual(strategyId: string, proxyData: string) {
+        return this.client.post(`/strategies-proxy/${strategyId}/proxy/import/manual`, {
+            strategy_id: strategyId,
+            source_type: 'manual_list',
+            proxy_data: proxyData
+        })
+    }
+
+    async importStrategyProxiesFile(strategyId: string, file: File) {
+        const formData = new FormData()
+        formData.append('file', file)
+        return this.client.post(`/strategies-proxy/${strategyId}/proxy/import/file`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data'
+            }
+        })
+    }
+
+    async importStrategyProxiesUrl(strategyId: string, sourceUrl: string) {
+        return this.client.post(`/strategies-proxy/${strategyId}/proxy/import/url`, {
+            strategy_id: strategyId,
+            source_type: 'url_import',
+            source_url: sourceUrl
+        })
+    }
+
+    async importStrategyProxiesGoogleDoc(strategyId: string, googleDocUrl: string) {
+        const formData = new FormData()
+        formData.append('google_doc_url', googleDocUrl)
+        return this.client.post(`/strategies-proxy/${strategyId}/proxy/import/google-doc`, formData)
+    }
+
+    async importStrategyProxiesGoogleSheets(strategyId: string, googleSheetsUrl: string) {
+        const formData = new FormData()
+        formData.append('google_sheets_url', googleSheetsUrl)
+        return this.client.post(`/strategies-proxy/${strategyId}/proxy/import/google-sheets`, formData)
+    }
+
+    async testStrategyProxy(strategyId: string, proxyId: string) {
+        return this.client.post(`/strategies-proxy/${strategyId}/proxy/${proxyId}/test`)
+    }
+
+    async deleteStrategyProxySource(strategyId: string, sourceId: string) {
+        return this.client.delete(`/strategies-proxy/${strategyId}/proxy/sources/${sourceId}`)
+    }
 }
 
 export const api = new ApiClient()

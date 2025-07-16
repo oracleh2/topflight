@@ -600,7 +600,7 @@ export const useStrategiesStore = defineStore('strategies', () => {
         }
     }
 
-    function cleanProfileNurtureConfig(config) {
+    function cleanProfileNurtureConfig(config: any) {
         const cleaned = {...config}
 
         // Удаляем поля, которые не нужны для определенных типов
@@ -622,7 +622,80 @@ export const useStrategiesStore = defineStore('strategies', () => {
         return cleaned
     }
 
-    function validateQueriesSource(source) {
+    // Strategy proxy management methods
+    async function getStrategyProxies(strategyId: string) {
+        try {
+            const response = await api.get(`/strategies-proxy/${strategyId}/proxy`)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка загрузки прокси'
+            throw err
+        }
+    }
+
+    async function getStrategyProxyStats(strategyId: string) {
+        try {
+            const response = await api.get(`/strategies-proxy/${strategyId}/proxy/stats`)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка загрузки статистики прокси'
+            throw err
+        }
+    }
+
+    async function getStrategyProxySources(strategyId: string) {
+        try {
+            const response = await api.get(`/strategies-proxy/${strategyId}/proxy/sources`)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка загрузки источников прокси'
+            throw err
+        }
+    }
+
+    async function updateStrategyProxySettings(strategyId: string, settings: any) {
+        try {
+            const response = await api.patch(`/strategies-proxy/${strategyId}`, {
+                proxy_settings: settings
+            })
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка обновления настроек прокси'
+            throw err
+        }
+    }
+
+    async function importStrategyProxies(strategyId: string, importData: any) {
+        try {
+            const response = await api.post(`/strategies-proxy/${strategyId}/proxy/import`, importData)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка импорта прокси'
+            throw err
+        }
+    }
+
+    async function testStrategyProxy(strategyId: string, proxyId: string) {
+        try {
+            const response = await api.post(`/strategies-proxy/${strategyId}/proxy/${proxyId}/test`)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка тестирования прокси'
+            throw err
+        }
+    }
+
+    async function deleteStrategyProxySource(strategyId: string, sourceId: string) {
+        try {
+            const response = await api.delete(`/strategies-proxy/${strategyId}/proxy/sources/${sourceId}`)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка удаления источника прокси'
+            throw err
+        }
+    }
+
+    function validateQueriesSource(source: any) {
         const errors = []
 
         if (!source) {
@@ -641,7 +714,7 @@ export const useStrategiesStore = defineStore('strategies', () => {
         return errors
     }
 
-    function validateDirectSitesSource(source) {
+    function validateDirectSitesSource(source: any) {
         const errors = []
 
         if (!source) {
@@ -660,7 +733,7 @@ export const useStrategiesStore = defineStore('strategies', () => {
         return errors
     }
 
-    async function createTemporaryStrategy(strategyData) {
+    async function createTemporaryStrategy(strategyData: any) {
         try {
             const response = await api.post('/strategies/temporary', strategyData)
             return response.data
@@ -729,6 +802,15 @@ export const useStrategiesStore = defineStore('strategies', () => {
         validateQueriesSource,
         validateDirectSitesSource,
         getDataSourceStats,
+
+        // Strategy proxy methods
+        getStrategyProxies,
+        getStrategyProxyStats,
+        getStrategyProxySources,
+        updateStrategyProxySettings,
+        importStrategyProxies,
+        testStrategyProxy,
+        deleteStrategyProxySource,
 
         cleanProfileNurtureConfig
     }

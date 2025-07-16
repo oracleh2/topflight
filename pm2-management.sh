@@ -1,11 +1,13 @@
-# pm2-management.sh - Обновленный для TopFlight
 #!/bin/bash
+
 # PM2 Management script для TopFlight с поддержкой VNC
+# pm2-management.sh - Обновленный для TopFlight
 
 set -euo pipefail
 
 PROJECT_ROOT="/var/www/topflight"
 BACKEND_DIR="$PROJECT_ROOT/backend"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
 ACTION=${1:-}
 
 # Функция для проверки окружения
@@ -83,8 +85,8 @@ case "$ACTION" in
         pm2 start run_api.py --name "topflight-api" \
             --interpreter "$BACKEND_DIR/venv/bin/python" \
             --cwd "$BACKEND_DIR" \
-            --log "$PROJECT_ROOT/logs/api.log" \
-            --error "$PROJECT_ROOT/logs/api.error.log" \
+            --log "$PROJECT_ROOT/logs/backend-api.log" \
+            --error "$PROJECT_ROOT/logs/backend-api.error.log" \
             --env PROJECT_ROOT="$PROJECT_ROOT" \
             --env DISPLAY=":99" \
             --env PYTHONPATH="$BACKEND_DIR"
@@ -100,6 +102,37 @@ case "$ACTION" in
                 --env PROJECT_ROOT="$PROJECT_ROOT" \
                 --env DISPLAY=":99" \
                 --env PYTHONPATH="$BACKEND_DIR"
+        fi
+
+        # Запуск фронтэнда (опционально)
+        if [ "${START_FRONTEND:-true}" = "true" ]; then
+            echo "🎨 Starting frontend..."
+
+            # Проверяем существование директории фронтэнда
+            if [ ! -d "$FRONTEND_DIR" ]; then
+                echo "⚠️ Frontend directory $FRONTEND_DIR not found. Skipping frontend startup."
+            else
+                cd "$FRONTEND_DIR"
+
+                # Проверяем package.json
+                if [ ! -f "package.json" ]; then
+                    echo "⚠️ package.json not found in frontend directory. Skipping frontend startup."
+                else
+                    # Проверяем node_modules
+                    if [ ! -d "node_modules" ]; then
+                        echo "📦 Installing frontend dependencies..."
+                        npm install
+                    fi
+
+                    # Запускаем фронтэнд через PM2
+                    echo "🎯 Starting frontend dev server..."
+                    pm2 start npm --name "topflight-frontend" \
+                        --cwd "$FRONTEND_DIR" \
+                        --log "$PROJECT_ROOT/logs/frontend.log" \
+                        --error "$PROJECT_ROOT/logs/frontend.error.log" \
+                        -- run dev
+                fi
+            fi
         fi
 
         # Сохраняем конфигурацию PM2
@@ -119,7 +152,7 @@ case "$ACTION" in
 
     "stop")
         echo "🛑 Stopping TopFlight..."
-        pm2 stop topflight-api topflight-worker 2>/dev/null || true
+        pm2 stop topflight-api topflight-worker topflight-frontend 2>/dev/null || true
         echo "✅ TopFlight stopped"
         ;;
 

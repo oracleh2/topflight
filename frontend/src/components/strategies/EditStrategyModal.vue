@@ -121,6 +121,17 @@
                                             </p>
                                         </div>
                                     </div>
+                                    <!-- Управление прокси -->
+                                    <div>
+                                        <h4 class="text-sm font-medium text-gray-900 mb-4">
+                                            Управление прокси
+                                        </h4>
+
+                                        <StrategyProxyManager
+                                            v-if="strategy?.id"
+                                            :strategy-id="strategy.id"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div class="mt-6 sm:mt-8 sm:flex sm:flex-row-reverse">
@@ -153,13 +164,14 @@
 import {ref, computed, watch} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from '@headlessui/vue'
 import {PencilIcon, BeakerIcon, ChartBarIcon, UserIcon} from '@heroicons/vue/24/outline'
-import {useStrategiesStore} from '@/stores/strategies'
+import {useStrategiesStore} from '@/stores/strategies.ts'
 import Spinner from '@/components/ui/Spinner.vue'
 
 // Импортируем компоненты форм
 import WarmupForm from '@/components/strategies/WarmupForm.vue'
 import PositionCheckForm from '@/components/strategies/PositionCheckForm.vue'
 import ProfileNurtureForm from '@/components/strategies/ProfileNurtureForm.vue'
+import StrategyProxyManager from '@/components/strategies/StrategyProxyManager.vue'
 
 interface Props {
     isOpen: boolean

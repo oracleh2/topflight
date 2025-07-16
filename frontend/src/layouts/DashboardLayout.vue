@@ -113,7 +113,7 @@
 
                                     <MenuItem v-slot="{ active }">
                                         <router-link
-                                            to="/profile"
+                                            to="/user"
                                             :class="[active ? 'bg-gray-100' : '', 'block px-4 py-2 text-sm text-gray-700']"
                                         >
                                             Профиль
@@ -261,7 +261,8 @@ import {
     CreditCardIcon,
     ClipboardDocumentListIcon,
     UserIcon,
-    BugAntIcon
+    BugAntIcon,
+    UserCircleIcon
 } from '@heroicons/vue/24/outline'
 import {useAuthStore} from '@/stores/auth'
 
@@ -271,22 +272,31 @@ const sidebarOpen = ref(false)
 
 const navigation = computed(() => {
     const baseNavigation = [
+        // {name: 'User', label: 'Пользователь', to: '/user', icon: UserIcon},
         {name: 'Dashboard', label: 'Дашборд', to: '/dashboard', icon: HomeIcon},
         {name: 'Domains', label: 'Домены', to: '/domains', icon: GlobeAltIcon},
         {name: 'Billing', label: 'Биллинг', to: '/billing', icon: CreditCardIcon},
         {name: 'Tasks', label: 'Задачи', to: '/tasks', icon: ClipboardDocumentListIcon},
-        {name: 'Profile', label: 'Профиль', to: '/profile', icon: UserIcon},
+
         {name: 'Strategies', label: 'Стратегии', to: '/strategies', icon: CurrencyDollarIcon},
     ]
 
     // Добавляем админские пункты меню
     if (authStore.isAdmin) {
-        baseNavigation.push({
-            name: 'TaskDebug',
-            label: 'Дебаг задач',
-            to: '/admin/debug',
-            icon: BugAntIcon
-        })
+        baseNavigation.push(
+            {
+                name: 'TaskDebug',
+                label: 'Дебаг задач',
+                to: '/admin/debug',
+                icon: BugAntIcon
+            },
+            {
+                name: 'Profiles',
+                label: 'Профили',
+                to: '/profiles',
+                icon: UserCircleIcon
+            },
+        )
     }
 
     return baseNavigation

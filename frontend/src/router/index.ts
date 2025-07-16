@@ -1,6 +1,10 @@
 import {createRouter, createWebHistory} from 'vue-router'
 import {useAuthStore} from '@/stores/auth'
 
+const ProfilesList = () => import('@/views/profiles/ProfilesList.vue')  // Добавляем
+const ProfileDetail = () => import('@/views/profiles/ProfileDetail.vue')  // Добавляем
+
+
 const router = createRouter({
     history: createWebHistory(),
     routes: [
@@ -52,14 +56,26 @@ const router = createRouter({
                     component: () => import('@/views/tasks/TasksList.vue')
                 },
                 {
-                    path: '/profile',
-                    name: 'Profile',
-                    component: () => import('@/views/profile/Profile.vue')
+                    path: '/user',
+                    name: 'User',
+                    component: () => import('@/views/user/User.vue')
                 },
                 {
                     path: '/strategies',
                     name: 'Strategies',
                     component: () => import('@/views/strategies/StrategiesManager.vue')
+                },
+                {
+                    path: '/profiles',
+                    name: 'ProfilesList',
+                    component: ProfilesList,
+                    meta: {requiresAuth: true}
+                },
+                {
+                    path: '/profiles/:id',
+                    name: 'ProfileDetail',
+                    component: ProfileDetail,
+                    meta: {requiresAuth: true}
                 },
                 {
                     path: "/admin/debug",

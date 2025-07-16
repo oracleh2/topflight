@@ -45,8 +45,12 @@ class UserStrategy(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     is_active = Column(Boolean, server_default="true")
+    proxy_settings = Column(
+        JSON, nullable=True, comment="Настройки прокси для стратегии"
+    )
 
     # Relationships - только внутренние, без связи с User
+    user = relationship("User", back_populates="strategies")
     template = relationship("StrategyTemplate", back_populates="user_strategies")
     data_sources = relationship(
         "StrategyDataSource", back_populates="strategy", cascade="all, delete-orphan"
@@ -66,6 +70,9 @@ class UserStrategy(Base):
         "ProjectStrategy",
         foreign_keys="ProjectStrategy.profile_nurture_strategy_id",
         back_populates="profile_nurture_strategy",
+    )
+    proxy_sources = relationship(
+        "StrategyProxySource", back_populates="strategy", cascade="all, delete-orphan"
     )
 
 
@@ -108,6 +115,7 @@ class ProjectStrategy(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships - используем прямые запросы вместо relationships с User/UserDomain
+    user = relationship("User", back_populates="project_strategies")
     warmup_strategy = relationship(
         "UserStrategy",
         foreign_keys=[warmup_strategy_id],
