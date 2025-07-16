@@ -1,5 +1,6 @@
 # backend/app/api/strategies.py
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 import json
@@ -14,7 +15,8 @@ from app.constants.strategies import (
 )
 from app.database import get_session
 from app.dependencies import get_current_user
-from app.models import User
+from app.models import User, UserStrategy
+from app.services.profile_nurture_limits_service import ProfileNurtureLimitsService
 
 router = APIRouter(prefix="/strategies", tags=["Strategies"])
 
@@ -35,6 +37,7 @@ try:
         ProjectStrategyCreate,
         StrategyValidationResponse,
         StrategyValidationRequest,
+        StrategyType,
     )
 except ImportError as e:
     print(f"Warning: Could not import some strategy schemas: {e}")
@@ -207,7 +210,7 @@ async def get_user_strategies(
     try:
         strategy_service = StrategyService(session)
         strategies = await strategy_service.get_user_strategies(
-            str(current_user.id), strategy_type
+            str(current_user.id), strategy_type, session
         )
         return strategies
     except Exception as e:
@@ -216,75 +219,48 @@ async def get_user_strategies(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.post("/temporary")
-async def create_temporary_strategy(
-    strategy_data: dict,
+@router.get("/", response_model=List[UserStrategyResponse])
+async def get_user_strategies(
+    strategy_type: Optional[StrategyType] = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Создание временной стратегии (для предпросмотра/валидации)"""
-    try:
-        from datetime import datetime
+    """Получить список стратегий пользователя с информацией о лимитах"""
 
-        # Валидируем данные стратегии
-        strategy_type = strategy_data.get("strategy_type")
-        config = strategy_data.get("config", {})
+    query = select(UserStrategy).where(UserStrategy.user_id == current_user.id)
 
-        errors = []
-        warnings = []
+    if strategy_type:
+        query = query.where(UserStrategy.strategy_type == strategy_type)
 
-        # Валидация в зависимости от типа стратегии
-        if strategy_type == "warmup":
-            try:
-                validated_config = validate_warmup_config(config)
-            except ValueError as e:
-                errors.append(str(e))
-                validated_config = config
-        elif strategy_type == "position_check":
-            try:
-                validated_config = validate_position_check_config(config)
-            except ValueError as e:
-                errors.append(str(e))
-                validated_config = config
-        elif strategy_type == "profile_nurture":
-            try:
-                validated_config = validate_profile_nurture_config(config)
-            except ValueError as e:
-                errors.append(str(e))
-                validated_config = config
-        else:
-            errors.append(f"Неизвестный тип стратегии: {strategy_type}")
-            validated_config = config
+    query = query.order_by(UserStrategy.created_at.desc())
 
-        # Возвращаем временную стратегию с валидированной конфигурацией
-        # НЕ сохраняем в базу данных
-        temporary_strategy = {
-            "id": f"temp_{strategy_type}_{int(datetime.now().timestamp())}",
-            "user_id": str(current_user.id),
-            "template_id": strategy_data.get("template_id"),
-            "name": strategy_data.get("name", f"Временная стратегия {strategy_type}"),
-            "strategy_type": strategy_type,
-            "config": validated_config,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "is_active": True,
-            "is_temporary": True,
-            "data_sources": [],
-            "validation": {
-                "errors": errors,
-                "warnings": warnings,
-                "is_valid": len(errors) == 0,
-            },
+    result = await session.execute(query)
+    strategies = result.scalars().all()
+
+    # Для стратегий нагула профилей добавляем информацию о лимитах
+    limits_service = ProfileNurtureLimitsService(session)
+    strategies_with_limits = []
+
+    for strategy in strategies:
+        strategy_dict = {
+            "id": str(strategy.id),
+            "name": strategy.name,
+            "description": strategy.description,
+            "strategy_type": strategy.strategy_type,
+            "config": strategy.config,
+            "is_active": strategy.is_active,
+            "created_at": strategy.created_at,
+            "updated_at": strategy.updated_at,
         }
 
-        return temporary_strategy
+        # Добавляем информацию о лимитах для стратегий нагула
+        if strategy.strategy_type == StrategyType.PROFILE_NURTURE:
+            status = await limits_service.check_strategy_status(str(strategy.id))
+            strategy_dict["nurture_status"] = status
 
-    except Exception as e:
-        print(f"Error in create_temporary_strategy: {e}")
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка создания временной стратегии: {str(e)}"
-        )
+        strategies_with_limits.append(strategy_dict)
+
+    return strategies_with_limits
 
 
 @router.post("/", response_model=UserStrategyResponse)
@@ -722,6 +698,93 @@ async def update_user_strategy(
         print(f"Error in update_user_strategy: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/profile-nurture/{strategy_id}/status")
+async def get_profile_nurture_status(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить статус стратегии нагула профилей"""
+
+    # Проверяем, что стратегия принадлежит пользователю
+    query = select(UserStrategy).where(
+        and_(
+            UserStrategy.id == strategy_id,
+            UserStrategy.user_id == current_user.id,
+            UserStrategy.strategy_type == StrategyType.PROFILE_NURTURE,
+        )
+    )
+    result = await session.execute(query)
+    strategy = result.scalar_one_or_none()
+
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Стратегия не найдена")
+
+    limits_service = ProfileNurtureLimitsService(session)
+    status = await limits_service.check_strategy_status(strategy_id)
+
+    return {
+        "success": True,
+        "strategy_id": strategy_id,
+        "strategy_name": strategy.name,
+        "status": status,
+    }
+
+
+@router.post("/profile-nurture/{strategy_id}/spawn-tasks")
+async def spawn_nurture_tasks(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Создать задачи нагула для стратегии"""
+
+    # Проверяем, что стратегия принадлежит пользователю
+    query = select(UserStrategy).where(
+        and_(
+            UserStrategy.id == strategy_id,
+            UserStrategy.user_id == current_user.id,
+            UserStrategy.strategy_type == StrategyType.PROFILE_NURTURE,
+        )
+    )
+    result = await session.execute(query)
+    strategy = result.scalar_one_or_none()
+
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Стратегия не найдена")
+
+    limits_service = ProfileNurtureLimitsService(session)
+    result = await limits_service.spawn_nurture_tasks_if_needed(strategy_id)
+
+    return result
+
+
+@router.get("/profile-nurture/all-status")
+async def get_all_profile_nurture_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить статус всех стратегий нагула пользователя"""
+
+    limits_service = ProfileNurtureLimitsService(session)
+    statuses = await limits_service.get_all_strategies_status(str(current_user.id))
+
+    return {"success": True, "strategies": statuses}
+
+
+@router.post("/profile-nurture/auto-maintain")
+async def auto_maintain_strategies(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Автоматически поддерживать все стратегии нагула"""
+
+    limits_service = ProfileNurtureLimitsService(session)
+    result = await limits_service.auto_maintain_all_strategies(str(current_user.id))
+
+    return result
 
 
 @router.delete("/{strategy_id}")

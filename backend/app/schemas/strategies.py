@@ -90,7 +90,8 @@ class ProfileNurtureQueriesSource(BaseModel):
     source_url: Optional[str] = None
     data_content: Optional[str] = None
     refresh_on_each_cycle: bool = Field(
-        False, description="Обновлять данные на каждом цикле (для URL)"
+        default=False,  # Добавляем значение по умолчанию
+        description="Обновлять данные на каждом цикле (для URL)",
     )
 
     @model_validator(mode="after")
@@ -147,13 +148,23 @@ class ProfileNurtureConfigCreate(BaseModel):
     )
     search_engines: List[SearchEngineType] = Field(default=["yandex.ru"])
     queries_source: ProfileNurtureQueriesSource = Field(
-        default_factory=lambda: ProfileNurtureQueriesSource(type="manual_input")
+        default_factory=lambda: ProfileNurtureQueriesSource(
+            type="manual_input", refresh_on_each_cycle=False
+        )
     )
     behavior: ProfileNurtureBehavior = Field(default_factory=ProfileNurtureBehavior)
     proportions: Optional[ProfileNurtureProportions] = None
 
     # Дополнительные источники для прямых заходов
     direct_sites_source: Optional[ProfileNurtureQueriesSource] = None
+
+    # НОВЫЕ ПОЛЯ для лимитов профилей
+    min_profiles_limit: int = Field(
+        10, ge=1, le=10000, description="Минимальное количество нагуленных профилей"
+    )
+    max_profiles_limit: int = Field(
+        100, ge=1, le=10000, description="Максимальное количество нагуленных профилей"
+    )
 
     @model_validator(mode="after")
     def validate_nurture_config(self) -> Self:
@@ -171,6 +182,12 @@ class ProfileNurtureConfigCreate(BaseModel):
         if self.nurture_type in ["direct_visits", "mixed_nurture"]:
             if not self.direct_sites_source:
                 raise ValueError("Источник сайтов обязателен для прямых заходов")
+
+        # Проверяем лимиты профилей
+        if self.min_profiles_limit > self.max_profiles_limit:
+            raise ValueError(
+                "Минимальный лимит профилей не может быть больше максимального"
+            )
 
         return self
 

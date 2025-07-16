@@ -678,6 +678,48 @@ class ApiClient {
     async getStrategyProxySourcePreview(strategyId: string, sourceId: string) {
         return this.client.get(`/strategies-proxy/${strategyId}/proxy/sources/${sourceId}/preview`)
     }
+
+    /**
+     * Получить статус стратегии нагула профилей
+     */
+    async getProfileNurtureStatus(strategyId: string) {
+        const response = await api.get(`/strategies/profile-nurture/${strategyId}/status`)
+        return response.data
+    }
+
+    /**
+     * Создать задачи нагула для стратегии
+     */
+    async spawnNurtureTasks(strategyId: string) {
+        const response = await api.post(`/strategies/profile-nurture/${strategyId}/spawn-tasks`)
+        return response.data
+    }
+
+    /**
+     * Получить статус всех стратегий нагула
+     */
+    async getAllProfileNurtureStatus() {
+        const response = await api.get('/strategies/profile-nurture/all-status')
+        return response.data
+    }
+
+    /**
+     * Автоматически поддерживать все стратегии
+     */
+    async autoMaintainStrategies() {
+        const response = await api.post('/strategies/profile-nurture/auto-maintain')
+        return response.data
+    }
+
+    /**
+     * Получить список стратегий с информацией о лимитах
+     */
+    async getStrategiesWithLimits(strategyType?: string | null) {
+        const params = strategyType ? {strategy_type: strategyType} : {}
+        const response = await api.get('/strategies/', {params})
+        console.log(response.data)
+        return response.data
+    }
 }
 
 export const api = new ApiClient()

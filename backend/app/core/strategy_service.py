@@ -5,12 +5,15 @@ import asyncio
 import aiohttp
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 import structlog
 import requests
 from pathlib import Path
 
+from app.database import get_session
 from app.models import (
     StrategyTemplate,
     UserStrategy,
@@ -29,7 +32,9 @@ from app.constants.strategies import (
     validate_warmup_config,
     validate_position_check_config,
     validate_profile_nurture_config,
+    StrategyType,
 )
+from app.services.profile_nurture_limits_service import ProfileNurtureLimitsService
 
 logger = structlog.get_logger()
 
@@ -64,7 +69,10 @@ class StrategyService:
         ]
 
     async def get_user_strategies(
-        self, user_id: str, strategy_type: Optional[str] = None
+        self,
+        user_id: str,
+        strategy_type: Optional[str] = None,
+        session: AsyncSession = Depends(get_session),
     ) -> List[Dict]:
         """Получение всех стратегий пользователя"""
 
@@ -78,11 +86,36 @@ class StrategyService:
         if strategy_type:
             query = query.where(UserStrategy.strategy_type == strategy_type)
 
+        query = query.order_by(UserStrategy.created_at.desc())
+
         result = await self.session.execute(query)
         strategies = result.scalars().all()
 
-        return [
-            {
+        limits_service = ProfileNurtureLimitsService(session)
+        strategies_with_limits = []
+
+        # return [
+        #     {
+        #         "id": str(strategy.id),
+        #         "user_id": str(
+        #             strategy.user_id
+        #         ),  # ✅ ИСПРАВЛЕНО: преобразуем UUID в строку
+        #         "template_id": (
+        #             str(strategy.template_id) if strategy.template_id else None
+        #         ),
+        #         "name": strategy.name,
+        #         "strategy_type": strategy.strategy_type,
+        #         "config": strategy.config,
+        #         "created_at": strategy.created_at,
+        #         "updated_at": strategy.updated_at,
+        #         "is_active": strategy.is_active,
+        #         "data_sources": await self._get_strategy_data_sources(str(strategy.id)),
+        #     }
+        #     for strategy in strategies
+        # ]
+
+        for strategy in strategies:
+            strategy_dict = {
                 "id": str(strategy.id),
                 "user_id": str(
                     strategy.user_id
@@ -98,8 +131,13 @@ class StrategyService:
                 "is_active": strategy.is_active,
                 "data_sources": await self._get_strategy_data_sources(str(strategy.id)),
             }
-            for strategy in strategies
-        ]
+
+            if strategy.strategy_type == StrategyType.PROFILE_NURTURE:
+                status = await limits_service.check_strategy_status(str(strategy.id))
+                strategy_dict["nurture_status"] = status
+
+            strategies_with_limits.append(strategy_dict)
+        return strategies_with_limits
 
     async def _get_strategy_data_sources(self, strategy_id: str) -> List[Dict]:
         """Получение источников данных для стратегии"""

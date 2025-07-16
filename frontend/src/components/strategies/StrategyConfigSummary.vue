@@ -58,6 +58,53 @@
                         getNurtureTypeLabel(strategy.config.nurture_type)
                     }}</span>
             </div>
+            <!-- Лимиты профилей -->
+            <div v-if="strategy.config.min_profiles_limit || strategy.config.max_profiles_limit"
+                 class="flex justify-between text-sm">
+                <span class="text-gray-600">Лимиты профилей:</span>
+                <span class="font-medium">
+            {{
+                        strategy.config.min_profiles_limit || 10
+                    }}-{{ strategy.config.max_profiles_limit || 100 }}
+        </span>
+            </div>
+
+            <!-- Статус профилей -->
+            <div v-if="strategy.nurture_status" class="flex justify-between text-sm">
+                <span class="text-gray-600">Нагулено профилей:</span>
+                <span class="font-medium">
+            {{ strategy.nurture_status.current_count }}/{{ strategy.nurture_status.max_limit }}
+        </span>
+            </div>
+
+            <!-- Прогресс-бар -->
+            <div v-if="strategy.nurture_status" class="mt-2">
+                <div class="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Прогресс</span>
+                    <span>{{
+                            Math.round((strategy.nurture_status.current_count / strategy.nurture_status.max_limit) * 100)
+                        }}%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                        class="h-2 rounded-full transition-all duration-300"
+                        :class="getNurtureStatusClass(strategy.nurture_status.status)"
+                        :style="{ width: `${Math.min((strategy.nurture_status.current_count / strategy.nurture_status.max_limit) * 100, 100)}%` }"
+                    ></div>
+                </div>
+            </div>
+
+            <!-- Критическое предупреждение -->
+            <div v-if="strategy.nurture_status?.status === 'critical'"
+                 class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                <div class="flex items-center text-red-600">
+                    <ExclamationTriangleIcon class="h-4 w-4 mr-1"/>
+                    <span class="font-medium">Критический уровень!</span>
+                </div>
+                <div class="text-red-700 mt-1">
+                    Профилей меньше минимального лимита ({{ strategy.nurture_status.min_limit }})
+                </div>
+            </div>
             <div class="flex justify-between text-sm">
                 <span class="text-gray-600">Целевые куки:</span>
                 <span class="font-medium">
@@ -140,7 +187,35 @@
 
         <!-- Edit Button -->
         <div class="pt-2 border-t">
+            <!-- Для стратегий нагула профилей показываем специальные действия -->
+            <div v-if="strategy.strategy_type === 'profile_nurture'" class="space-y-2">
+                <!-- Кнопка создания задач нагула -->
+                <button
+                    v-if="strategy.nurture_status?.needs_nurture"
+                    @click="spawnNurtureTasks"
+                    :disabled="spawningTasks"
+                    class="w-full inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                    <div
+                        v-if="spawningTasks"
+                        class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"
+                    ></div>
+                    <PlusIcon v-else class="h-4 w-4 mr-2"/>
+                    {{ spawningTasks ? 'Создание задач...' : 'Создать задачи нагула' }}
+                </button>
+
+                <!-- Кнопка изменения настроек -->
+                <button
+                    @click="$emit('edit')"
+                    class="w-full text-sm text-primary-600 hover:text-primary-500 font-medium py-2"
+                >
+                    Изменить настройки
+                </button>
+            </div>
+
+            <!-- Для остальных типов стратегий показываем обычную кнопку -->
             <button
+                v-else
                 @click="$emit('edit')"
                 class="w-full text-sm text-primary-600 hover:text-primary-500 font-medium"
             >
@@ -151,6 +226,11 @@
 </template>
 
 <script setup lang="ts">
+import {ref} from 'vue'
+import {PlusIcon, ExclamationTriangleIcon} from '@heroicons/vue/24/outline'
+import {api} from '@/api'
+
+
 interface Props {
     strategy: any
 }
@@ -158,7 +238,38 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
     edit: []
+    refresh: []
 }>()
+
+async function spawnNurtureTasks() {
+    spawningTasks.value = true
+    try {
+        const response = await api.spawnNurtureTasks(props.strategy.id)
+
+        if (response.success) {
+            emit('refresh')
+        }
+    } catch (error) {
+        console.error('Ошибка создания задач нагула:', error)
+    } finally {
+        spawningTasks.value = false
+    }
+}
+
+const spawningTasks = ref(false)
+
+function getNurtureStatusClass(status: string): string {
+    switch (status) {
+        case 'critical':
+            return 'bg-red-500'
+        case 'normal':
+            return 'bg-green-500'
+        case 'max_reached':
+            return 'bg-blue-500'
+        default:
+            return 'bg-gray-500'
+    }
+}
 
 function getWarmupTypeLabel(type: string): string {
     switch (type) {

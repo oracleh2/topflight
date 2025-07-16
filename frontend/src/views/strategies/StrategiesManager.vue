@@ -249,6 +249,7 @@
                                 <StrategyConfigSummary
                                     :strategy="strategy"
                                     @edit="editStrategy(strategy)"
+                                    @refresh="handleStrategyRefresh"
                                 />
                             </div>
 
@@ -312,6 +313,106 @@
             </div>
         </div>
 
+        <!-- Mass Actions for Profile Nurture Strategies -->
+        <div v-if="activeTab === 'profile_nurture' && currentStrategies.length > 0"
+             class="mt-8 border-t pt-6">
+            <div class="bg-gray-50 rounded-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-900">
+                            Массовые действия
+                        </h3>
+                        <p class="text-sm text-gray-600">
+                            Управление всеми стратегиями нагула профилей
+                        </p>
+                    </div>
+                    <div class="flex space-x-3">
+                        <button
+                            @click="refreshAllStrategiesStatus"
+                            :disabled="refreshingStatus"
+                            class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                        >
+                            <div
+                                v-if="refreshingStatus"
+                                class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"
+                            ></div>
+                            <ArrowPathIcon v-else class="h-4 w-4 mr-2"/>
+                            {{ refreshingStatus ? 'Обновление...' : 'Обновить статус' }}
+                        </button>
+
+                        <button
+                            @click="maintainAllStrategies"
+                            :disabled="maintainingAll"
+                            class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                        >
+                            <div
+                                v-if="maintainingAll"
+                                class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"
+                            ></div>
+                            <PlayIcon v-else class="h-4 w-4 mr-2"/>
+                            {{ maintainingAll ? 'Поддержание...' : 'Поддержать все стратегии' }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Статистика стратегий -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="bg-white rounded-lg p-4 border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <UserIcon class="h-8 w-8 text-gray-400"/>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-gray-500">Всего стратегий</p>
+                                <p class="text-lg font-semibold text-gray-900">
+                                    {{ currentStrategies.length }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg p-4 border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <ExclamationTriangleIcon class="h-8 w-8 text-red-400"/>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-gray-500">Критических</p>
+                                <p class="text-lg font-semibold text-red-600">
+                                    {{ criticalStrategiesCount }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg p-4 border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <CheckCircleIcon class="h-8 w-8 text-green-400"/>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-gray-500">Нормальных</p>
+                                <p class="text-lg font-semibold text-green-600">
+                                    {{ normalStrategiesCount }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg p-4 border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <ClockIcon class="h-8 w-8 text-blue-400"/>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-gray-500">Нужен нагул</p>
+                                <p class="text-lg font-semibold text-blue-600">{{
+                                        needNurtureCount
+                                    }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Create Strategy Modal -->
         <CreateStrategyModal
             :is-open="showCreateModal"
@@ -360,7 +461,10 @@ import {
     DocumentDuplicateIcon,
     TrashIcon,
     DocumentIcon,
-    GlobeAltIcon
+    GlobeAltIcon,
+    ArrowPathIcon,
+    CheckCircleIcon,
+    ClockIcon
 
 } from '@heroicons/vue/24/outline'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
@@ -372,6 +476,7 @@ import StrategyConfigSummary from '@/components/strategies/StrategyConfigSummary
 import AddDataSourceModal from '@/components/modals/AddDataSourceModal.vue'
 import StrategyProxyManager from '@/components/strategies/StrategyProxyManager.vue'
 import ProxyManagerModal from "@/components/strategies/ProxyManagerModal.vue";
+import {api} from '@/api'
 
 
 const strategiesStore = useStrategiesStore()
@@ -382,6 +487,9 @@ const showEditModal = ref(false)
 const selectedStrategy = ref<Strategy | null>(null)
 const showAddDataSourceModal = ref(false)
 const showProxyManagerModal = ref(false)
+const refreshingStatus = ref(false)
+const maintainingAll = ref(false)
+
 
 const tabs = computed(() => [
     {
@@ -418,7 +526,29 @@ const currentStrategies = computed(() => {
     }
 })
 
+const criticalStrategiesCount = computed(() => {
+    return currentStrategies.value.filter(s =>
+        s.strategy_type === 'profile_nurture' && s.nurture_status?.status === 'critical'
+    ).length
+})
+
+const normalStrategiesCount = computed(() => {
+    return currentStrategies.value.filter(s =>
+        s.strategy_type === 'profile_nurture' && s.nurture_status?.status === 'normal'
+    ).length
+})
+
+const needNurtureCount = computed(() => {
+    return currentStrategies.value.filter(s =>
+        s.strategy_type === 'profile_nurture' && s.nurture_status?.needs_nurture
+    ).length
+})
+
 const {loading, error} = strategiesStore
+
+async function handleStrategyRefresh() {
+    await strategiesStore.fetchStrategies()
+}
 
 function getCurrentTabIcon() {
     const tab = tabs.value.find(t => t.key === activeTab.value)
@@ -533,7 +663,7 @@ function addDataSource(strategy: Strategy) {
 
 // Функция получения метки источника данных
 function getDataSourceLabel(sourceType: string): string {
-    const labels = {
+    const labels: Record<string, string> = {
         'manual_list': 'Ручной ввод',
         'file_upload': 'Загрузка файла',
         'url_import': 'Импорт по URL',
@@ -555,10 +685,40 @@ function manageProxies(strategy: Strategy) {
     showProxyManagerModal.value = true
 }
 
+async function refreshAllStrategiesStatus() {
+    refreshingStatus.value = true
+    try {
+        await strategiesStore.fetchStrategies()
+        console.log('Статус всех стратегий обновлен')
+    } catch (error) {
+        console.error('Ошибка обновления статуса:', error)
+    } finally {
+        refreshingStatus.value = false
+    }
+}
+
+async function maintainAllStrategies() {
+    maintainingAll.value = true
+    try {
+        const response = await strategiesStore.maintainAllStrategies()
+
+        if (response.success) {
+            console.log(`Поддержано ${response.maintained_strategies} стратегий`)
+            await strategiesStore.fetchStrategies()
+        } else {
+            console.error('Ошибка автоматического поддержания')
+        }
+    } catch (error) {
+        console.error('Ошибка поддержания стратегий:', error)
+    } finally {
+        maintainingAll.value = false
+    }
+}
+
 onMounted(async () => {
     await Promise.all([
         strategiesStore.fetchStrategies(),
-        strategiesStore.fetchStrategyTemplates()
+        strategiesStore.fetchStrategyTemplates(),
     ])
 })
 </script>

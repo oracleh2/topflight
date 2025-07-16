@@ -3,6 +3,9 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
+from app.core.task_manager import TaskType
+from app.models import DeviceType
+
 
 class TaskTypeEnum(str, Enum):
     WARMUP_PROFILE = "warmup_profile"
@@ -31,6 +34,20 @@ class TaskCreate(BaseModel):
     task_type: TaskTypeEnum
     parameters: Dict[str, Any]
     priority: int = Field(default=0, ge=0, le=10)
+    device_type: DeviceType = DeviceType.DESKTOP
+    profile_id: Optional[str] = None
+    reserved_amount: Optional[float] = None
+
+
+class TaskCreateRequest(BaseModel):
+    """Схема для создания задачи"""
+
+    task_type: TaskType
+    priority: int = Field(5, ge=1, le=20)
+    device_type: DeviceType = DeviceType.DESKTOP
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    profile_id: Optional[str] = None
+    reserved_amount: Optional[float] = None
 
 
 class ParseTaskCreate(BaseModel):
@@ -38,27 +55,55 @@ class ParseTaskCreate(BaseModel):
     device_type: DeviceTypeEnum = DeviceTypeEnum.DESKTOP
     pages: int = Field(default=10, ge=1, le=20)
     region_code: str = Field(default="213", min_length=1, max_length=10)
+    reserved_amount: Optional[float] = None
+    priority: int = Field(5, ge=1, le=20)
 
 
 class PositionCheckCreate(BaseModel):
     keyword_ids: List[str] = Field(..., min_items=1)
     device_type: DeviceTypeEnum = DeviceTypeEnum.DESKTOP
+    reserved_amount: Optional[float] = None
+    priority: int = Field(5, ge=1, le=20)
+
+
+class WarmupTaskCreateRequest(BaseModel):
+    """Схема для создания задачи прогрева"""
+
+    device_type: DeviceType = DeviceType.DESKTOP
+    profile_id: Optional[str] = None
+    priority: int = Field(2, ge=1, le=20)
+    reserved_amount: Optional[float] = None
+
+
+class ProfileNurtureTaskCreateRequest(BaseModel):
+    """Схема для создания задачи нагула профиля"""
+
+    strategy_id: str
+    device_type: DeviceType = DeviceType.DESKTOP
+    priority: int = Field(3, ge=1, le=20)
+    profile_id: Optional[str] = None
+    reserved_amount: Optional[float] = None
 
 
 # Response schemas
 class TaskResponse(BaseModel):
+    """Схема ответа для задачи"""
+
     id: str
     task_type: str
     status: str
     priority: int
-    parameters: Optional[Dict[str, Any]] = None
-    result: Optional[Dict[str, Any]] = None
-    error_message: Optional[str] = None
+    device_type: str  # Добавляем device_type
+    reserved_amount: Optional[float]
+    user_id: Optional[str]
+    profile_id: Optional[str]
+    parameters: Optional[Dict[str, Any]]
+    result: Optional[Dict[str, Any]]
+    error_message: Optional[str]
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
     created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    profile_id: Optional[str] = None
-    worker_id: Optional[str] = None
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -94,11 +139,14 @@ class PositionHistoryResponse(BaseModel):
         from_attributes = True
 
 
-class TaskListResponse(BaseModel):
+class TasksListResponse(BaseModel):
+    """Схема для списка задач"""
+
     tasks: List[TaskResponse]
     total: int
-    limit: int
-    offset: int
+    page: int
+    per_page: int
+    total_pages: int
 
 
 class TaskStatusResponse(BaseModel):
@@ -119,6 +167,7 @@ class ParseTaskResult(BaseModel):
     device_type: str
     region_code: str
     parsing_time_seconds: float
+    reserved_amount: Optional[float] = None
 
 
 class PositionCheckResult(BaseModel):
@@ -128,3 +177,15 @@ class PositionCheckResult(BaseModel):
     average_position: Optional[float] = None
     check_time_seconds: float
     device_type: str
+
+
+class TaskStatsResponse(BaseModel):
+    """Схема для статистики задач"""
+
+    total_tasks: int
+    pending_tasks: int
+    running_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    tasks_by_type: Dict[str, int]
+    tasks_by_device_type: Dict[str, int]

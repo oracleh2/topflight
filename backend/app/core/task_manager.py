@@ -22,11 +22,13 @@ from app.models import (
     UserDomain,
     ParseResult,
     PositionHistory,
+    UserStrategy,
 )
 from app.database import async_session_maker
 from .browser_manager import BrowserManager
 from .strategy_executor import StrategyExecutor
 from .vnc_manager import vnc_manager
+from ..schemas.strategies import StrategyType
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +41,7 @@ class TaskType(Enum):
     MAINTAIN_PROFILES = "maintain_profiles"
     STRATEGY_WARMUP = "strategy_warmup"
     STRATEGY_POSITION_CHECK = "strategy_position_check"
+    PROFILE_NURTURE = "profile_nurture"
 
 
 class TaskStatus(Enum):
@@ -998,7 +1001,6 @@ class TaskManager:
         region_code: str = "213",
         priority: int = 5,
         user_id: Optional[str] = None,
-        reserved_amount: Optional[float] = None,
         **kwargs,
     ) -> Task:
         """Создает задачу парсинга SERP"""
@@ -1006,7 +1008,6 @@ class TaskManager:
 
         parameters = {
             "keyword": keyword,
-            "device_type": device_type.value,
             "pages": pages,
             "region_code": region_code,
             **kwargs,
@@ -1016,9 +1017,9 @@ class TaskManager:
             task_type=TaskType.PARSE_SERP.value,
             status=TaskStatus.PENDING.value,
             priority=priority,
+            device_type=device_type.value,  # Добавляем device_type
             user_id=user_id,
             parameters=parameters,
-            reserved_amount=reserved_amount,
         )
 
         session.add(task)
@@ -1026,17 +1027,22 @@ class TaskManager:
         await session.refresh(task)
 
         logger.info(
-            "Parse task created", task_id=str(task.id), keyword=keyword, user_id=user_id
+            "Parse task created",
+            task_id=str(task.id),
+            keyword=keyword,
+            device_type=device_type.value,
+            pages=pages,
+            user_id=user_id,
         )
         return task
 
-    async def create_position_check_task(
+    async def create_check_positions_task(
         self,
         keyword_ids: List[str],
         device_type: DeviceType = DeviceType.DESKTOP,
-        priority: int = 10,
+        priority: int = 5,
         user_id: Optional[str] = None,
-        reserved_amount: Optional[float] = None,
+        reserved_amount: float = 0.0,
         **kwargs,
     ) -> Task:
         """Создает задачу проверки позиций"""
@@ -1044,7 +1050,6 @@ class TaskManager:
 
         parameters = {
             "keyword_ids": keyword_ids,
-            "device_type": device_type.value,
             **kwargs,
         }
 
@@ -1052,6 +1057,7 @@ class TaskManager:
             task_type=TaskType.CHECK_POSITIONS.value,
             status=TaskStatus.PENDING.value,
             priority=priority,
+            device_type=device_type.value,  # Добавляем device_type
             user_id=user_id,
             parameters=parameters,
             reserved_amount=reserved_amount,
@@ -1065,6 +1071,7 @@ class TaskManager:
             "Position check task created",
             task_id=str(task.id),
             keywords_count=len(keyword_ids),
+            device_type=device_type.value,
             user_id=user_id,
         )
         return task
@@ -1080,7 +1087,7 @@ class TaskManager:
         """Создает задачу прогрева профиля"""
         session = await self.get_session()
 
-        parameters = {"device_type": device_type.value, **kwargs}
+        parameters = {**kwargs}
 
         if profile_id:
             parameters["profile_id"] = profile_id
@@ -1089,6 +1096,7 @@ class TaskManager:
             task_type=TaskType.WARMUP_PROFILE.value,
             status=TaskStatus.PENDING.value,
             priority=priority,
+            device_type=device_type.value,  # Добавляем device_type
             user_id=user_id,
             parameters=parameters,
         )
@@ -1097,7 +1105,12 @@ class TaskManager:
         await session.commit()
         await session.refresh(task)
 
-        logger.info("Warmup task created", task_id=str(task.id), user_id=user_id)
+        logger.info(
+            "Warmup task created",
+            task_id=str(task.id),
+            device_type=device_type.value,
+            user_id=user_id,
+        )
         return task
 
     async def create_debug_task(
@@ -1111,7 +1124,6 @@ class TaskManager:
         session = await self.get_session()
 
         parameters = {
-            "device_type": device_type.value,
             "debug_enabled": debug_enabled,
             "debug_created_at": datetime.now(timezone.utc).isoformat(),
             **kwargs,
@@ -1121,6 +1133,7 @@ class TaskManager:
             task_type=task_type.value,
             status=TaskStatus.PENDING.value,
             priority=kwargs.get("priority", 10),
+            device_type=device_type.value,  # Добавляем device_type
             parameters=parameters,
         )
 
@@ -1132,6 +1145,7 @@ class TaskManager:
             "Debug task created",
             task_id=str(task.id),
             task_type=task_type.value,
+            device_type=device_type.value,
             debug_enabled=debug_enabled,
         )
 
@@ -1435,3 +1449,58 @@ class TaskManager:
             profile_id=str(profile.id),
             vnc_port=debug_info.get("vnc_port"),
         )
+
+    async def create_profile_nurture_task(
+        self,
+        strategy_id: str,
+        priority: int = 3,
+        device_type: DeviceType = DeviceType.DESKTOP,
+        profile_id: Optional[str] = None,
+        reserved_amount: Optional[float] = None,
+    ) -> Task:
+        """Создать задачу нагула профиля"""
+
+        # Получаем стратегию
+        strategy_query = select(UserStrategy).where(
+            and_(
+                UserStrategy.id == strategy_id,
+                UserStrategy.strategy_type == StrategyType.PROFILE_NURTURE,
+                UserStrategy.is_active == True,
+            )
+        )
+        result = await self.db.execute(strategy_query)
+        strategy = result.scalar_one_or_none()
+
+        if not strategy:
+            raise ValueError(f"Стратегия нагула профиля {strategy_id} не найдена")
+
+        # Создаем задачу
+        task = Task(
+            task_type=TaskType.PROFILE_NURTURE.value,
+            priority=priority,
+            device_type=device_type.value,  # Используем значение enum
+            profile_id=profile_id,
+            parameters={
+                "strategy_id": strategy_id,
+                "strategy_config": strategy.config,
+                "user_id": str(strategy.user_id),
+            },
+            status=TaskStatus.PENDING.value,
+            reserved_amount=reserved_amount,
+            created_at=datetime.utcnow(),
+        )
+
+        self.db.add(task)
+        await self.db.commit()
+        await self.db.refresh(task)
+
+        logger.info(
+            "Profile nurture task created",
+            task_id=str(task.id),
+            strategy_id=strategy_id,
+            priority=priority,
+            device_type=device_type.value,
+            reserved_amount=reserved_amount,
+        )
+
+        return task

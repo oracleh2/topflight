@@ -1,6 +1,16 @@
+from decimal import Decimal
 from typing import Optional, Dict, Any
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    DateTime,
+    Text,
+    ForeignKey,
+    JSON,
+    Numeric,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -15,6 +25,13 @@ class Task(Base, UUIDMixin, TimestampMixin):
     task_type = Column(
         String(50), nullable=False
     )  # warmup_profile, parse_serp, check_positions
+
+    device_type = Column(
+        String(20), nullable=False, default="desktop"
+    )  # desktop, mobile, tablet
+
+    reserved_amount = Column(Numeric(10, 2), nullable=True, default=None)
+
     status = Column(
         String(50), default="pending"
     )  # pending, running, completed, failed
@@ -86,6 +103,28 @@ class Task(Base, UUIDMixin, TimestampMixin):
             return DeviceType(self.parameters["device_type"])
 
         return DeviceType.DESKTOP
+
+    def get_device_type_enum(self) -> DeviceType:
+        """Возвращает тип устройства как enum"""
+        try:
+            return DeviceType(self.device_type)
+        except ValueError:
+            return DeviceType.DESKTOP
+
+    def set_device_type(self, device_type: DeviceType):
+        """Устанавливает тип устройства"""
+        self.device_type = device_type.value
+
+    def get_reserved_amount(self) -> Optional[Decimal]:
+        """Возвращает зарезервированную сумму"""
+        return self.reserved_amount
+
+    def set_reserved_amount(self, amount: Optional[float]):
+        """Устанавливает зарезервированную сумму"""
+        if amount is not None:
+            self.reserved_amount = Decimal(str(amount))
+        else:
+            self.reserved_amount = None
 
 
 class ParseResult(Base, UUIDMixin, TimestampMixin):

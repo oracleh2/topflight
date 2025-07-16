@@ -2,6 +2,7 @@
 import {defineStore} from 'pinia'
 import {ref, computed} from 'vue'
 import {api} from '@/api'
+import type {AxiosError} from "axios";
 
 export interface Strategy {
     id: string
@@ -13,7 +14,14 @@ export interface Strategy {
     created_at: string
     updated_at: string
     is_active: boolean
-    data_sources: DataSource[]
+    data_sources: DataSource[],
+    nurture_status?: {
+        current_count: number
+        min_limit: number
+        max_limit: number
+        status: 'critical' | 'normal' | 'max_reached'
+        needs_nurture: boolean
+    }
 }
 
 export interface DataSource {
@@ -82,6 +90,60 @@ export const useStrategiesStore = defineStore('strategies', () => {
     const profileNurtureTemplates = computed(() =>
         templates.value.filter(t => t.strategy_type === 'profile_nurture')
     )
+
+    const criticalStrategies = computed(() =>
+        profileNurtureStrategies.value.filter(s => s.nurture_status?.status === 'critical')
+    )
+
+    const strategiesNeedingNurture = computed(() =>
+        profileNurtureStrategies.value.filter(s => s.nurture_status?.needs_nurture)
+    )
+
+    async function spawnNurtureTasks(strategyId: string) {
+        try {
+            const response = await api.spawnNurtureTasks(strategyId)
+            if (response.data.success) {
+                await fetchStrategies() // Обновляем статус стратегии
+            }
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка создания задач нагула'
+            throw err
+        }
+    }
+
+    async function maintainAllStrategies() {
+        try {
+            const response = await api.autoMaintainStrategies()
+            if (response.data.success) {
+                await fetchStrategies() // Обновляем статус всех стратегий
+            }
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка поддержания стратегий'
+            throw err
+        }
+    }
+
+    async function getProfileNurtureStatus(strategyId: string) {
+        try {
+            const response = await api.getProfileNurtureStatus(strategyId)
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка получения статуса'
+            throw err
+        }
+    }
+
+    async function getAllProfileNurtureStatus() {
+        try {
+            const response = await api.getAllProfileNurtureStatus()
+            return response.data
+        } catch (err: any) {
+            error.value = err.response?.data?.detail || 'Ошибка получения статуса стратегий'
+            throw err
+        }
+    }
 
     // Default configurations
     function getDefaultWarmupConfig() {
@@ -168,8 +230,12 @@ export const useStrategiesStore = defineStore('strategies', () => {
             error.value = null
 
             const params = strategyType ? {strategy_type: strategyType} : {}
-            const response = await api.get('/strategies', {params})
-            strategies.value = response.data
+            // const response = await api.get('/strategies', {params})
+            const response = await api.getStrategiesWithLimits(
+                typeof strategyType === 'string' ? strategyType : null
+            )
+
+            strategies.value = response
         } catch (err: any) {
             error.value = err.response?.data?.detail || 'Ошибка загрузки стратегий'
             throw err
@@ -551,7 +617,7 @@ export const useStrategiesStore = defineStore('strategies', () => {
     function getDataSourceStats(source: any) {
         if (!source.data_content) return {count: 0, preview: []}
 
-        const lines = source.data_content.split('\n').filter(line => line.trim())
+        const lines = source.data_content.split('\n').filter((line: string) => line.trim())
         return {
             count: lines.length,
             preview: lines.slice(0, 5),
@@ -751,7 +817,10 @@ export const useStrategiesStore = defineStore('strategies', () => {
             const response = await api.post('/strategies/temporary', strategyData)
             return response.data
         } catch (err) {
-            error.value = err.response?.data?.detail || 'Ошибка создания временной стратегии'
+            const axiosError = err as AxiosError<{ detail?: string }>
+
+            error.value = axiosError.response?.data?.detail || 'Ошибка создания временной стратегии'
+
             throw err
         }
     }
@@ -771,6 +840,9 @@ export const useStrategiesStore = defineStore('strategies', () => {
         warmupTemplates,
         positionCheckTemplates,
         profileNurtureTemplates,
+
+        criticalStrategies,              // ДОБАВИТЬ
+        strategiesNeedingNurture,        // ДОБАВИТЬ
 
         // Methods
         fetchStrategyTemplates,
@@ -824,6 +896,11 @@ export const useStrategiesStore = defineStore('strategies', () => {
         importStrategyProxies,
         testStrategyProxy,
         deleteStrategyProxySource,
+
+        spawnNurtureTasks,              // ДОБАВИТЬ
+        maintainAllStrategies,          // ДОБАВИТЬ
+        getProfileNurtureStatus,        // ДОБАВИТЬ
+        getAllProfileNurtureStatus,     // ДОБАВИТЬ
 
         cleanProfileNurtureConfig
     }

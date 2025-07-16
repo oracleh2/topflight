@@ -1,9 +1,9 @@
 # backend/app/models/strategies.py
+
 from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from datetime import datetime, timezone
 
 from app.models.base import Base
 
