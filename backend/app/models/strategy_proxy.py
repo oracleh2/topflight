@@ -1,5 +1,17 @@
 # backend/app/models/strategy_proxy.py
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, Integer
+import uuid
+
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    func,
+    Index,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -31,6 +43,9 @@ class StrategyProxySource(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     strategy = relationship("UserStrategy", back_populates="proxy_sources")
+    proxies = relationship(
+        "StrategyProxy", back_populates="source", cascade="all, delete-orphan"
+    )
 
 
 # Обновляем модель UserStrategy для поддержки прокси
@@ -114,3 +129,53 @@ class Profile(Base, UUIDMixin, TimestampMixin):
     assigned_strategy_proxy = relationship("ProjectProxy", foreign_keys=[assigned_strategy_proxy_id])
     strategy_proxy_assignments = relationship("StrategyProxyAssignment", back_populates="profile")
 """
+
+
+class StrategyProxy(Base):
+    __tablename__ = "strategy_proxies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    strategy_id = Column(
+        UUID(as_uuid=True), ForeignKey("user_strategies.id"), nullable=False
+    )
+    source_id = Column(
+        UUID(as_uuid=True), ForeignKey("strategy_proxy_sources.id"), nullable=True
+    )
+    host = Column(String, nullable=False)
+    port = Column(Integer, nullable=False)
+    username = Column(String, nullable=True)
+    password = Column(String, nullable=True)
+    protocol = Column(String, default="http")
+    status = Column(String, default="active")
+    total_uses = Column(Integer, default=0)
+    successful_uses = Column(Integer, default=0)
+    failed_uses = Column(Integer, default=0)
+    success_rate = Column(Integer, default=100)
+    response_time = Column(Integer, nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    strategy = relationship("UserStrategy", back_populates="strategy_proxies")
+    source = relationship("StrategyProxySource", back_populates="proxies")
+
+    # Индексы
+    __table_args__ = (
+        Index("ix_strategy_proxies_strategy_id", "strategy_id"),
+        Index("ix_strategy_proxies_host_port", "host", "port"),
+        Index("ix_strategy_proxies_status", "status"),
+        Index("ix_strategy_proxies_source_id", "source_id"),
+        Index(
+            "ix_strategy_proxies_unique_per_strategy",
+            "strategy_id",
+            "host",
+            "port",
+            unique=True,
+        ),
+    )
+
+    def __repr__(self):
+        return f"<StrategyProxy(id={self.id}, host={self.host}, port={self.port}, status={self.status})>"

@@ -674,6 +674,10 @@ class ApiClient {
     async deleteStrategyProxySource(strategyId: string, sourceId: string) {
         return this.client.delete(`/strategies-proxy/${strategyId}/proxy/sources/${sourceId}`)
     }
+
+    async getStrategyProxySourcePreview(strategyId: string, sourceId: string) {
+        return this.client.get(`/strategies-proxy/${strategyId}/proxy/sources/${sourceId}/preview`)
+    }
 }
 
 export const api = new ApiClient()

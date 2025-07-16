@@ -50,106 +50,270 @@ class StrategyProxyService:
                     success=False, errors=["Стратегия не найдена"]
                 )
 
-            # Определяем источник данных
-            if source_type == "manual_list":
-                raw_data = proxy_data
-            elif source_type == "file_upload":
-                raw_data = file_content
-            elif source_type == "url_import":
-                raw_data = await self._fetch_data_from_url(source_url)
-            elif source_type == "google_docs":
-                raw_data = await self._fetch_google_docs_data(source_url)
-            elif source_type == "google_sheets":
-                raw_data = await self._fetch_google_sheets_data(source_url)
-            else:
-                return StrategyProxyImportResponse(
-                    success=False, errors=["Неподдерживаемый тип источника"]
-                )
-
-            if not raw_data:
-                return StrategyProxyImportResponse(
-                    success=False, errors=["Не удалось получить данные прокси"]
-                )
-
-            # Парсим прокси
-            parsed_proxies = ProxyParser.parse_proxy_list(raw_data)
-
-            if not parsed_proxies:
-                return StrategyProxyImportResponse(
-                    success=False, errors=["Не удалось распарсить ни одной прокси"]
-                )
-
             # Создаем источник прокси
             proxy_source = StrategyProxySource(
                 strategy_id=strategy_id,
                 source_type=source_type,
                 source_url=source_url,
-                proxy_data=raw_data,
+                proxy_data=proxy_data or file_content,
             )
 
             self.session.add(proxy_source)
+            await self.session.flush()  # Получаем ID источника
 
-            # Импортируем прокси в основную таблицу
-            domain_id = await self._get_strategy_domain_id(strategy_id)
-            user_id = strategy.user_id
+            # Для динамических источников (URL, Google Docs/Sheets) НЕ импортируем прокси сразу
+            if source_type in ["url_import", "google_docs", "google_sheets"]:
+                await self.session.commit()
 
-            successfully_imported = 0
-            errors = []
+                # Тестируем доступность источника
+                test_data = await self._fetch_data_by_source_type(
+                    source_type, source_url
+                )
+                if not test_data:
+                    return StrategyProxyImportResponse(
+                        success=False,
+                        errors=["Не удалось получить данные из источника"],
+                    )
 
-            for proxy_data in parsed_proxies:
-                try:
-                    # Проверяем, существует ли уже такая прокси
-                    existing_proxy = await self.session.execute(
-                        select(ProjectProxy).where(
-                            and_(
-                                ProjectProxy.user_id == user_id,
-                                ProjectProxy.domain_id == domain_id,
-                                ProjectProxy.host == proxy_data["host"],
-                                ProjectProxy.port == proxy_data["port"],
+                # Парсим для подсчета количества прокси
+                parsed_proxies = ProxyParser.parse_proxy_list(test_data)
+
+                return StrategyProxyImportResponse(
+                    success=True,
+                    total_parsed=len(parsed_proxies),
+                    successfully_imported=0,  # Не импортируем статично
+                    failed_imports=0,
+                    errors=[],
+                    source_id=str(proxy_source.id),
+                    message=f"Динамический источник сохранен. Найдено {len(parsed_proxies)} прокси.",
+                )
+
+            # Для статических источников (manual_list, file_upload) импортируем как раньше
+            else:
+                raw_data = proxy_data or file_content
+
+                if not raw_data:
+                    return StrategyProxyImportResponse(
+                        success=False, errors=["Не удалось получить данные прокси"]
+                    )
+
+                # Парсим прокси
+                parsed_proxies = ProxyParser.parse_proxy_list(raw_data)
+
+                if not parsed_proxies:
+                    return StrategyProxyImportResponse(
+                        success=False, errors=["Не удалось распарсить ни одной прокси"]
+                    )
+
+                # Импортируем прокси в основную таблицу
+                domain_id = await self._get_strategy_domain_id(strategy_id)
+                user_id = strategy.user_id
+
+                successfully_imported = 0
+                errors = []
+
+                for proxy_data in parsed_proxies:
+                    try:
+                        # Проверяем, существует ли уже такая прокси
+                        from ..models.strategy_proxy import StrategyProxy
+
+                        # existing_proxy = await self.session.execute(
+                        #     select(ProjectProxy).where(
+                        #         and_(
+                        #             ProjectProxy.user_id == user_id,
+                        #             ProjectProxy.domain_id == domain_id,
+                        #             ProjectProxy.host == proxy_data["host"],
+                        #             ProjectProxy.port == proxy_data["port"],
+                        #         )
+                        #     )
+                        # )
+
+                        existing_proxy = await self.session.execute(
+                            select(StrategyProxy).where(
+                                and_(
+                                    StrategyProxy.strategy_id == strategy_id,
+                                    StrategyProxy.host == proxy_data["host"],
+                                    StrategyProxy.port == proxy_data["port"],
+                                )
                             )
                         )
-                    )
 
-                    if existing_proxy.scalar_one_or_none():
-                        continue  # Прокси уже существует
+                        if existing_proxy.scalar_one_or_none():
+                            continue  # Прокси уже существует
 
-                    # Создаем новую прокси
-                    new_proxy = ProjectProxy(
-                        user_id=user_id,
-                        domain_id=domain_id,
-                        proxy_type="warmup",  # По умолчанию для стратегий
-                        host=proxy_data["host"],
-                        port=proxy_data["port"],
-                        username=proxy_data.get("username"),
-                        password=proxy_data.get("password"),
-                        protocol=proxy_data.get("protocol", "http"),
-                        status="active",
-                    )
+                        # Создаем новую прокси
+                        # new_proxy = ProjectProxy(
+                        #     user_id=user_id,
+                        #     domain_id=domain_id,
+                        #     proxy_type="warmup",
+                        #     host=proxy_data["host"],
+                        #     port=proxy_data["port"],
+                        #     username=proxy_data.get("username"),
+                        #     password=proxy_data.get("password"),
+                        #     protocol=proxy_data.get("protocol", "http"),
+                        #     status="active",
+                        # )
 
-                    self.session.add(new_proxy)
-                    successfully_imported += 1
+                        new_proxy = StrategyProxy(
+                            strategy_id=strategy_id,
+                            source_id=proxy_source.id,
+                            host=proxy_data["host"],
+                            port=proxy_data["port"],
+                            username=proxy_data.get("username"),
+                            password=proxy_data.get("password"),
+                            protocol=proxy_data.get("protocol", "http"),
+                            status="active",
+                        )
 
-                except Exception as e:
-                    errors.append(
-                        f"Ошибка импорта прокси {proxy_data.get('host', 'unknown')}: {str(e)}"
-                    )
+                        self.session.add(new_proxy)
+                        successfully_imported += 1
 
-            await self.session.commit()
+                    except Exception as e:
+                        errors.append(
+                            f"Ошибка импорта прокси {proxy_data.get('host', 'unknown')}: {str(e)}"
+                        )
 
-            return StrategyProxyImportResponse(
-                success=True,
-                total_parsed=len(parsed_proxies),
-                successfully_imported=successfully_imported,
-                failed_imports=len(parsed_proxies) - successfully_imported,
-                errors=errors,
-                source_id=str(proxy_source.id),
-            )
+                await self.session.commit()
+
+                return StrategyProxyImportResponse(
+                    success=True,
+                    total_parsed=len(parsed_proxies),
+                    successfully_imported=successfully_imported,
+                    failed_imports=len(parsed_proxies) - successfully_imported,
+                    errors=errors,
+                    source_id=str(proxy_source.id),
+                )
 
         except Exception as e:
             await self.session.rollback()
             return StrategyProxyImportResponse(
                 success=False, errors=[f"Ошибка импорта: {str(e)}"]
             )
+
+    async def get_random_proxy_from_strategy(
+        self, strategy_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Получение случайной прокси из всех источников стратегии"""
+
+        # Получаем все источники прокси для стратегии
+        sources_result = await self.session.execute(
+            select(StrategyProxySource).where(
+                and_(
+                    StrategyProxySource.strategy_id == strategy_id,
+                    StrategyProxySource.is_active == True,
+                )
+            )
+        )
+        sources = sources_result.scalars().all()
+
+        all_proxies = []
+
+        for source in sources:
+            if source.source_type in ["url_import", "google_docs", "google_sheets"]:
+                # Для динамических источников загружаем данные по URL
+                fresh_data = await self._fetch_data_by_source_type(
+                    source.source_type, source.source_url
+                )
+                if fresh_data:
+                    parsed_proxies = ProxyParser.parse_proxy_list(fresh_data)
+                    all_proxies.extend(parsed_proxies)
+
+            elif source.source_type in ["manual_list", "file_upload"]:
+                # Для статических источников получаем прокси из БД
+                static_proxies = await self.get_strategy_proxies(strategy_id)
+                all_proxies.extend(
+                    [
+                        {
+                            "host": proxy["host"],
+                            "port": proxy["port"],
+                            "username": None,  # Для статических прокси из БД
+                            "password": None,
+                            "protocol": proxy["protocol"],
+                        }
+                        for proxy in static_proxies
+                        if proxy["status"] == "active"
+                    ]
+                )
+
+        if not all_proxies:
+            return None
+
+        # Возвращаем случайную прокси
+        return random.choice(all_proxies)
+
+    async def _fetch_data_by_source_type(
+        self, source_type: str, source_url: str
+    ) -> Optional[str]:
+        """Получение данных в зависимости от типа источника"""
+
+        if source_type == "url_import":
+            return await self._fetch_data_from_url(source_url)
+        elif source_type == "google_docs":
+            return await self._fetch_google_docs_data(source_url)
+        elif source_type == "google_sheets":
+            return await self._fetch_google_sheets_data(source_url)
+
+        return None
+
+    async def get_strategy_proxy_stats(
+        self, strategy_id: str
+    ) -> StrategyProxyStatsResponse:
+        """Получение статистики прокси стратегии"""
+
+        # Получаем статические прокси
+        static_proxies = await self.get_strategy_proxies(strategy_id)
+
+        # Получаем динамические источники
+        sources_result = await self.session.execute(
+            select(StrategyProxySource).where(
+                and_(
+                    StrategyProxySource.strategy_id == strategy_id,
+                    StrategyProxySource.is_active == True,
+                    StrategyProxySource.source_type.in_(
+                        ["url_import", "google_docs", "google_sheets"]
+                    ),
+                )
+            )
+        )
+        dynamic_sources = sources_result.scalars().all()
+
+        total_dynamic_proxies = 0
+
+        # Подсчитываем прокси из динамических источников
+        for source in dynamic_sources:
+            fresh_data = await self._fetch_data_by_source_type(
+                source.source_type, source.source_url
+            )
+            if fresh_data:
+                parsed_proxies = ProxyParser.parse_proxy_list(fresh_data)
+                total_dynamic_proxies += len(parsed_proxies)
+
+        total_proxies = len(static_proxies) + total_dynamic_proxies
+        active_static = len([p for p in static_proxies if p["status"] == "active"])
+
+        # Для динамических источников считаем все прокси активными
+        active_proxies = active_static + total_dynamic_proxies
+
+        failed_proxies = len(
+            [p for p in static_proxies if p["status"] in ["inactive", "banned"]]
+        )
+
+        # Рассчитываем средний success_rate только для статических
+        success_rates = [
+            p["success_rate"] for p in static_proxies if p["success_rate"] is not None
+        ]
+        avg_success_rate = (
+            sum(success_rates) / len(success_rates) if success_rates else 100.0
+        )
+
+        return StrategyProxyStatsResponse(
+            total_proxies=total_proxies,
+            active_proxies=active_proxies,
+            failed_proxies=failed_proxies,
+            last_check=None,
+            average_response_time=None,
+            success_rate=avg_success_rate,
+        )
 
     async def get_strategy_proxies(self, strategy_id: str) -> List[Dict[str, Any]]:
         """Получение прокси для стратегии"""
@@ -225,46 +389,6 @@ class StrategyProxyService:
         await self.session.commit()
 
         return selected_proxy
-
-    async def get_strategy_proxy_stats(
-        self, strategy_id: str
-    ) -> StrategyProxyStatsResponse:
-        """Получение статистики прокси стратегии"""
-
-        proxies = await self.get_strategy_proxies(strategy_id)
-
-        if not proxies:
-            return StrategyProxyStatsResponse(
-                total_proxies=0,
-                active_proxies=0,
-                failed_proxies=0,
-                last_check=None,
-                average_response_time=None,
-                success_rate=None,
-            )
-
-        total_proxies = len(proxies)
-        active_proxies = len([p for p in proxies if p["status"] == "active"])
-        failed_proxies = len(
-            [p for p in proxies if p["status"] in ["inactive", "banned"]]
-        )
-
-        # Рассчитываем средний success_rate
-        success_rates = [
-            p["success_rate"] for p in proxies if p["success_rate"] is not None
-        ]
-        avg_success_rate = (
-            sum(success_rates) / len(success_rates) if success_rates else None
-        )
-
-        return StrategyProxyStatsResponse(
-            total_proxies=total_proxies,
-            active_proxies=active_proxies,
-            failed_proxies=failed_proxies,
-            last_check=None,  # Можно добавить логику получения последней проверки
-            average_response_time=None,
-            success_rate=avg_success_rate,
-        )
 
     async def rotate_proxy_for_strategy(
         self, strategy_id: str
@@ -350,3 +474,76 @@ class StrategyProxyService:
         # Это может потребовать дополнительной логики в зависимости от архитектуры
         # Пока возвращаем None, но нужно будет реализовать
         return None
+
+    async def get_proxy_for_profile_execution(
+        self, strategy_id: str, profile_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Получение прокси для выполнения профиля"""
+
+        # Получаем случайную прокси из всех источников
+        proxy = await self.get_random_proxy_from_strategy(strategy_id)
+
+        if proxy:
+            # Можно добавить логирование использования
+            await self._log_proxy_usage(strategy_id, profile_id, proxy)
+
+        return proxy
+
+    async def _log_proxy_usage(
+        self, strategy_id: str, profile_id: str, proxy_data: Dict[str, Any]
+    ):
+        """Логирование использования прокси"""
+        # Можно добавить запись в таблицу использования прокси
+        pass
+
+    async def get_source_preview(
+        self, strategy_id: str, source_id: str
+    ) -> Dict[str, Any]:
+        """Получение превью прокси из динамического источника"""
+
+        try:
+            # Получаем источник
+            source_result = await self.session.execute(
+                select(StrategyProxySource).where(
+                    and_(
+                        StrategyProxySource.id == source_id,
+                        StrategyProxySource.strategy_id == strategy_id,
+                        StrategyProxySource.is_active == True,
+                    )
+                )
+            )
+            source = source_result.scalar_one_or_none()
+
+            if not source:
+                return {"success": False, "error": "Источник не найден"}
+
+            # Проверяем, что это динамический источник
+            if source.source_type not in ["url_import", "google_docs", "google_sheets"]:
+                return {"success": False, "error": "Источник не является динамическим"}
+
+            # Получаем свежие данные
+            fresh_data = await self._fetch_data_by_source_type(
+                source.source_type, source.source_url
+            )
+
+            if not fresh_data:
+                return {
+                    "success": False,
+                    "error": "Не удалось получить данные из источника",
+                }
+
+            # Парсим прокси
+            parsed_proxies = ProxyParser.parse_proxy_list(fresh_data)
+
+            return {
+                "success": True,
+                "source_id": source_id,
+                "source_type": source.source_type,
+                "source_url": source.source_url,
+                "total_count": len(parsed_proxies),
+                "proxies": parsed_proxies,
+                "last_updated": datetime.utcnow().isoformat(),
+            }
+
+        except Exception as e:
+            return {"success": False, "error": f"Ошибка получения превью: {str(e)}"}

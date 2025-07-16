@@ -71,7 +71,7 @@
                             </router-link>
 
                             <router-link
-                                to="/profile"
+                                to="/user"
                                 class="relative rounded-lg border-2 border-dashed border-gray-300 p-6 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors group"
                             >
                                 <div class="text-center">

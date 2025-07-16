@@ -366,7 +366,7 @@ import {
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import {useStrategiesStore} from '@/stores/strategies'
 import type {Strategy} from '@/stores/strategies'
-import CreateStrategyModal from '@/components/modals/CreateStrategyModal.vue'
+import CreateStrategyModal from '@/components/strategies/CreateStrategyModal.vue'
 import EditStrategyModal from '@/components/strategies/EditStrategyModal.vue'
 import StrategyConfigSummary from '@/components/strategies/StrategyConfigSummary.vue'
 import AddDataSourceModal from '@/components/modals/AddDataSourceModal.vue'

@@ -116,6 +116,21 @@ async def import_strategy_proxy_file(
         )
 
 
+@router.get("/{strategy_id}/proxy/sources/{source_id}/preview")
+async def get_strategy_proxy_source_preview(
+    strategy_id: str,
+    source_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получение превью прокси из динамического источника"""
+
+    service = StrategyProxyService(session)
+    preview = await service.get_source_preview(strategy_id, source_id)
+
+    return preview
+
+
 @router.post(
     "/{strategy_id}/proxy/import/google-doc", response_model=StrategyProxyImportResponse
 )

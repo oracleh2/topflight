@@ -74,6 +74,9 @@ class UserStrategy(Base):
     proxy_sources = relationship(
         "StrategyProxySource", back_populates="strategy", cascade="all, delete-orphan"
     )
+    strategy_proxies = relationship(
+        "StrategyProxy", back_populates="strategy", cascade="all, delete-orphan"
+    )
 
 
 class StrategyDataSource(Base):

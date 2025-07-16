@@ -76,13 +76,14 @@ import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from 
 import {GlobeAltIcon, XMarkIcon} from '@heroicons/vue/24/outline'
 import StrategyProxyManager from './StrategyProxyManager.vue'
 
+
 interface Props {
     isOpen: boolean
     strategy: any | null
 }
 
 const props = defineProps<Props>()
-const emit = defineEmits<{
-    close: []
-}>()
+// const emit = defineEmits<{
+//     close: []
+// }>()
 </script>

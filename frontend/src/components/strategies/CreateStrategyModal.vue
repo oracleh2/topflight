@@ -40,12 +40,12 @@
                                 <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left w-full">
                                     <DialogTitle as="h3"
                                                  class="text-base font-semibold leading-6 text-gray-900">
-                                        Редактировать стратегию {{ strategyTypeLabel }}
+                                        Создать стратегию {{ getStrategyTypeLabel() }}
                                     </DialogTitle>
                                     <div class="mt-2">
                                         <p class="text-sm text-gray-500">
-                                            Настройте параметры стратегии для
-                                            {{ strategyTypeDescription }}
+                                            Создайте новую стратегию для
+                                            {{ getStrategyTypeDescription() }}
                                         </p>
                                     </div>
                                 </div>
@@ -62,34 +62,56 @@
                                     <h4 class="text-sm font-medium text-gray-900">Основные
                                         настройки</h4>
 
-                                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <!-- Название стратегии -->
-                                        <div>
-                                            <label
-                                                class="block text-sm font-medium text-gray-700 mb-2">
-                                                Название стратегии
-                                            </label>
-                                            <input
-                                                v-model="form.name"
-                                                type="text"
-                                                required
-                                                maxlength="255"
-                                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                                placeholder="Введите название стратегии"
-                                            />
-                                        </div>
+                                    <!-- Выбор шаблона -->
+                                    <div v-if="templates.length > 0">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Выберите шаблон (опционально)
+                                        </label>
+                                        <select
+                                            v-model="form.template_id"
+                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                            @change="handleTemplateChange"
+                                        >
+                                            <option value="">Создать с нуля</option>
+                                            <option
+                                                v-for="template in templates"
+                                                :key="template.id"
+                                                :value="template.id"
+                                            >
+                                                {{ template.name }}
+                                                <span v-if="template.is_system"
+                                                      class="text-gray-500">(системный)</span>
+                                            </option>
+                                        </select>
+                                        <p class="mt-1 text-xs text-gray-500">
+                                            Выберите готовый шаблон или создайте стратегию с нуля
+                                        </p>
+                                    </div>
 
-                                        <!-- Статус стратегии -->
-                                        <div class="flex items-center">
-                                            <label class="flex items-center">
-                                                <input
-                                                    v-model="form.is_active"
-                                                    type="checkbox"
-                                                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                                />
-                                                <span class="ml-2 text-sm text-gray-700">Активная стратегия</span>
-                                            </label>
-                                        </div>
+                                    <!-- Название стратегии -->
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Название стратегии
+                                        </label>
+                                        <input
+                                            v-model="form.name"
+                                            type="text"
+                                            required
+                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                            :placeholder="`Моя стратегия ${getStrategyTypeLabel().toLowerCase()}`"
+                                        >
+                                    </div>
+
+                                    <!-- Статус -->
+                                    <div class="flex items-center">
+                                        <label class="flex items-center">
+                                            <input
+                                                v-model="form.is_active"
+                                                type="checkbox"
+                                                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                            />
+                                            <span class="ml-2 text-sm text-gray-700">Активная стратегия</span>
+                                        </label>
                                     </div>
                                 </div>
 
@@ -100,32 +122,22 @@
 
                                     <!-- Warmup Configuration -->
                                     <WarmupForm
-                                        v-if="strategy?.strategy_type === 'warmup'"
+                                        v-if="strategyType === 'warmup'"
                                         v-model="form.config"
-                                        :is-editing="true"
                                     />
 
                                     <!-- Position Check Configuration -->
                                     <PositionCheckForm
-                                        v-else-if="strategy?.strategy_type === 'position_check'"
+                                        v-else-if="strategyType === 'position_check'"
                                         v-model="form.config"
-                                        :is-editing="true"
                                     />
 
                                     <!-- Profile Nurture Configuration -->
                                     <ProfileNurtureForm
-                                        v-else-if="strategy?.strategy_type === 'profile_nurture'"
+                                        v-else-if="strategyType === 'profile_nurture'"
                                         v-model="form.config"
-                                        :strategy-id="strategy?.id"
-                                        :is-editing="true"
+                                        :strategy-id="temporaryStrategyId || undefined"
                                     />
-
-                                    <!-- Fallback -->
-                                    <div v-else class="text-center py-8">
-                                        <p class="text-sm text-gray-500">
-                                            Неизвестный тип стратегии: {{ strategy?.strategy_type }}
-                                        </p>
-                                    </div>
                                 </div>
 
                                 <!-- Proxy Tab -->
@@ -133,10 +145,17 @@
                                     <h4 class="text-sm font-medium text-gray-900">Управление
                                         прокси</h4>
 
-                                    <StrategyProxyManager
-                                        v-if="strategy?.id"
-                                        :strategy-id="strategy.id"
-                                    />
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center mb-4">
+                                            <ExclamationCircleIcon
+                                                class="h-5 w-5 text-amber-500 mr-2"/>
+                                            <span class="text-sm font-medium text-gray-700">Настройка прокси</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600">
+                                            Прокси можно будет настроить после создания стратегии в
+                                            режиме редактирования.
+                                        </p>
+                                    </div>
                                 </div>
 
                                 <!-- Schedule Tab -->
@@ -150,8 +169,8 @@
                                             <span class="text-sm font-medium text-gray-700">Автоматическое выполнение</span>
                                         </div>
                                         <p class="text-sm text-gray-600">
-                                            Настройки расписания будут реализованы в будущих
-                                            версиях.
+                                            Настройки расписания будут доступны после создания
+                                            стратегии.
                                         </p>
                                     </div>
                                 </div>
@@ -162,11 +181,10 @@
                                 <button
                                     type="button"
                                     @click="handleSubmit"
-                                    :disabled="loading || !form.name"
+                                    :disabled="loading"
                                     class="inline-flex w-full justify-center rounded-md bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 sm:ml-3 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <Spinner v-if="loading" class="w-4 h-4 mr-2"/>
-                                    {{ loading ? 'Сохранение...' : 'Сохранить изменения' }}
+                                    {{ loading ? 'Создание...' : 'Создать стратегию' }}
                                 </button>
                                 <button
                                     type="button"
@@ -185,31 +203,32 @@
 </template>
 
 <script setup lang="ts">
-import {ref, computed, watch} from 'vue'
+import {ref, computed, watch, onMounted} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from '@headlessui/vue'
 import {
-    PencilIcon,
     BeakerIcon,
     ChartBarIcon,
     UserIcon,
     Cog6ToothIcon,
     GlobeAltIcon,
-    ClockIcon
+    ClockIcon,
+    ExclamationCircleIcon
 } from '@heroicons/vue/24/outline'
 import {useStrategiesStore} from '@/stores/strategies.ts'
-import Spinner from '@/components/ui/Spinner.vue'
+import type {StrategyTemplate} from '@/stores/strategies.ts'
 
 // Компоненты
 import TabsContainer from '@/components/ui/TabsContainer.vue'
 import WarmupForm from '@/components/strategies/WarmupForm.vue'
 import PositionCheckForm from '@/components/strategies/PositionCheckForm.vue'
 import ProfileNurtureForm from '@/components/strategies/ProfileNurtureForm.vue'
-import StrategyProxyManager from '@/components/strategies/StrategyProxyManager.vue'
 
-interface Props {
+const props = withDefaults(defineProps<{
     isOpen: boolean
-    strategy: any | null
-}
+    strategyType: 'warmup' | 'position_check' | 'profile_nurture'
+}>(), {
+    strategyType: 'warmup'
+})
 
 interface WarmupConfig {
     type: string
@@ -264,24 +283,31 @@ interface ProfileNurtureConfig {
     direct_sites_source?: any
 }
 
-const props = defineProps<Props>()
 const emit = defineEmits<{
     close: []
-    updated: [strategy: any]
+    created: [strategy: any]
 }>()
 
 const strategiesStore = useStrategiesStore()
+
+// Reactive data
+const templates = ref<StrategyTemplate[]>([])
 const loading = ref(false)
+const temporaryStrategyId = ref<string | null>(null)
 const activeTab = ref('basic')
 
 const form = ref<{
+    template_id: string
     name: string
+    strategy_type: string
     is_active: boolean
     config: any
 }>({
+    template_id: '',
     name: '',
+    strategy_type: props.strategyType,
     is_active: true,
-    config: {}
+    config: getDefaultConfig()
 })
 
 // Tabs configuration
@@ -312,10 +338,34 @@ const tabs = computed(() => [
     }
 ])
 
-const strategyTypeLabel = computed(() => {
-    if (!props.strategy) return ''
+function getDefaultConfig() {
+    switch (props.strategyType) {
+        case 'warmup':
+            return strategiesStore.getDefaultWarmupConfig()
+        case 'position_check':
+            return strategiesStore.getDefaultPositionCheckConfig()
+        case 'profile_nurture':
+            return strategiesStore.getEnhancedProfileNurtureConfig()
+        default:
+            return {}
+    }
+}
 
-    switch (props.strategy.strategy_type) {
+function getStrategyIcon() {
+    switch (props.strategyType) {
+        case 'warmup':
+            return BeakerIcon
+        case 'position_check':
+            return ChartBarIcon
+        case 'profile_nurture':
+            return UserIcon
+        default:
+            return BeakerIcon
+    }
+}
+
+function getStrategyTypeLabel(): string {
+    switch (props.strategyType) {
         case 'warmup':
             return 'прогрева'
         case 'position_check':
@@ -323,14 +373,12 @@ const strategyTypeLabel = computed(() => {
         case 'profile_nurture':
             return 'нагула профиля'
         default:
-            return props.strategy.strategy_type
+            return props.strategyType
     }
-})
+}
 
-const strategyTypeDescription = computed(() => {
-    if (!props.strategy) return ''
-
-    switch (props.strategy.strategy_type) {
+function getStrategyTypeDescription(): string {
+    switch (props.strategyType) {
         case 'warmup':
             return 'прогрева сайтов перед проверкой позиций'
         case 'position_check':
@@ -340,43 +388,76 @@ const strategyTypeDescription = computed(() => {
         default:
             return ''
     }
-})
+}
 
-function getStrategyIcon() {
-    if (!props.strategy) return PencilIcon
-
-    switch (props.strategy.strategy_type) {
+function getTemplatesByType() {
+    switch (props.strategyType) {
         case 'warmup':
-            return BeakerIcon
+            return strategiesStore.warmupTemplates
         case 'position_check':
-            return ChartBarIcon
+            return strategiesStore.positionCheckTemplates
         case 'profile_nurture':
-            return UserIcon
+            return strategiesStore.profileNurtureTemplates
         default:
-            return PencilIcon
+            return []
     }
 }
 
 function resetForm() {
-    if (props.strategy) {
-        form.value = {
-            name: props.strategy.name || '',
-            is_active: props.strategy.is_active ?? true,
-            config: JSON.parse(JSON.stringify(props.strategy.config || {}))
-        }
+    form.value = {
+        template_id: '',
+        name: '',
+        strategy_type: props.strategyType,
+        is_active: true,
+        config: getDefaultConfig()
     }
+    temporaryStrategyId.value = null
     activeTab.value = 'basic'
 }
 
-async function handleSubmit() {
-    if (!props.strategy) return
+function handleTemplateChange() {
+    if (form.value.template_id) {
+        const template = templates.value.find(t => t.id === form.value.template_id)
+        if (template) {
+            form.value.name = `${template.name} (копия)`
+            form.value.config = {...template.config}
+        }
+    } else {
+        form.value.config = getDefaultConfig()
+    }
+}
 
+async function createTemporaryStrategy() {
+    try {
+        if (props.strategyType === 'profile_nurture') {
+            const tempStrategy = await strategiesStore.createTemporaryStrategy({
+                name: form.value.name || `Временная стратегия ${Date.now()}`,
+                strategy_type: form.value.strategy_type,
+                config: form.value.config
+            })
+            temporaryStrategyId.value = tempStrategy.id
+        }
+    } catch (error) {
+        console.error('Error creating temporary strategy:', error)
+    }
+}
+
+async function loadTemplates() {
+    try {
+        await strategiesStore.fetchStrategyTemplates(props.strategyType)
+        templates.value = getTemplatesByType()
+    } catch (error) {
+        console.error('Error loading templates:', error)
+    }
+}
+
+async function handleSubmit() {
     try {
         loading.value = true
 
         // Валидация для profile_nurture
-        if (props.strategy.strategy_type === 'profile_nurture') {
-            const config = form.value.config as ProfileNurtureConfig
+        if (props.strategyType === 'profile_nurture') {
+            const config = form.value.config as any
             const nurtureType = config.nurture_type
 
             // Очищаем конфигурацию от ненужных полей
@@ -403,26 +484,52 @@ async function handleSubmit() {
             }
         }
 
-        const strategy = await strategiesStore.updateStrategy(props.strategy.id, {
+        const strategy = await strategiesStore.createStrategy({
+            template_id: form.value.template_id || undefined,
             name: form.value.name,
-            is_active: form.value.is_active,
+            strategy_type: form.value.strategy_type as 'warmup' | 'position_check' | 'profile_nurture',
             config: form.value.config
         })
 
-        emit('updated', strategy)
+        emit('created', strategy)
+        resetForm()
     } catch (error) {
-        console.error('Error updating strategy:', error)
+        console.error('Error creating strategy:', error)
         const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка'
-        alert(`Ошибка при сохранении стратегии: ${errorMessage}`)
+        alert(`Ошибка при создании стратегии: ${errorMessage}`)
     } finally {
         loading.value = false
     }
 }
 
-// Заполняем форму при открытии модального окна или изменении стратегии
-watch([() => props.isOpen, () => props.strategy], ([isOpen, strategy]) => {
-    if (isOpen && strategy) {
+// Сбрасываем форму при открытии модального окна
+watch(() => props.isOpen, async (isOpen) => {
+    if (isOpen) {
         resetForm()
+        await loadTemplates()
+        if (props.strategyType === 'profile_nurture') {
+            await createTemporaryStrategy()
+        }
     }
-}, {immediate: true})
+})
+
+// Обновляем тип стратегии при изменении props
+watch(() => props.strategyType, async (newType) => {
+    form.value.strategy_type = newType
+    form.value.config = getDefaultConfig()
+    await loadTemplates()
+    if (newType === 'profile_nurture') {
+        await createTemporaryStrategy()
+    }
+})
+
+// Загружаем шаблоны при монтировании
+onMounted(async () => {
+    if (props.isOpen) {
+        await loadTemplates()
+        if (props.strategyType === 'profile_nurture') {
+            await createTemporaryStrategy()
+        }
+    }
+})
 </script>

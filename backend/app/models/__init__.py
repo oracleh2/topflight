@@ -63,6 +63,8 @@ from .strategy_proxy import (
 
 from .alerts import AlertRule, AlertHistory, DebugVNCSession
 
+from .strategy_proxy import StrategyProxySource, StrategyProxy
+
 
 # Экспортируем все модели
 __all__ = [
@@ -120,6 +122,7 @@ __all__ = [
     "StrategyProxySource",
     "StrategyProxyAssignment",
     "StrategyProxyRotation",
+    "StrategyProxy",
 ]
 
 # __all__ = [

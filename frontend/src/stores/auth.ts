@@ -75,6 +75,11 @@ export const useAuthStore = defineStore('auth', () => {
 
         try {
             const response = await api.refreshToken(refreshToken.value)
+
+            if (response.status === 401) {
+                logout()
+            }
+
             const {access_token} = response.data
 
             token.value = access_token
@@ -132,6 +137,8 @@ export const useAuthStore = defineStore('auth', () => {
 
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
+
+        window.location.href = '/'
     }
 
     const isAdmin = computed(() => {

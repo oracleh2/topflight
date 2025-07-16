@@ -97,6 +97,7 @@ class StrategyProxyImportResponse(BaseModel):
     failed_imports: int = 0
     errors: List[str] = []
     source_id: Optional[str] = None
+    message: Optional[str] = None
 
 
 class StrategyProxyStatsResponse(BaseModel):

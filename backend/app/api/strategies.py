@@ -705,9 +705,18 @@ async def update_user_strategy(
 
     try:
         strategy_service = StrategyService(session)
+
+        update_dict = strategy_data.model_dump(exclude_none=True)
+
+        # strategy = await strategy_service.update_user_strategy(
+        #     strategy_id, str(current_user.id), strategy_data
+        # )
         strategy = await strategy_service.update_user_strategy(
-            strategy_id, str(current_user.id), strategy_data
+            strategy_id,
+            str(current_user.id),
+            update_dict,  # ← Передаем словарь, а не объект
         )
+
         return strategy
     except Exception as e:
         print(f"Error in update_user_strategy: {e}")
