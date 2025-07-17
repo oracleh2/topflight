@@ -147,10 +147,11 @@ class ProfileNurtureWorker:
 
         profile_temp_dir = None
         vnc_session = None
-        exception_to_raise = None  # Инициализируем сразу
-        result = None  # Для сохранения результата
+        exception_to_raise = None
+        result = None
 
         try:
+            logger.info("🔍 Step 1: Creating VNC session")
             # Импортируем enhanced vnc manager
             from app.core.enhanced_vnc_manager import enhanced_vnc_manager
 
@@ -163,6 +164,7 @@ class ProfileNurtureWorker:
             if not vnc_session:
                 raise Exception("Failed to create VNC session")
 
+            logger.info("🔍 Step 2: Getting or creating profile")
             # Получаем или создаем профиль
             if task.profile_id:
                 profile = await self._get_existing_profile(
@@ -173,6 +175,9 @@ class ProfileNurtureWorker:
                     browser_manager, device_type, task
                 )
 
+            logger.info(f"🔍 Step 3: Profile ready, ID: {profile.id}")
+
+            logger.info("🔍 Step 4: Selecting proxy")
             # Выбираем и назначаем прокси из стратегии
             selected_proxy = await self._select_and_assign_proxy(profile)
             if selected_proxy:
@@ -180,6 +185,7 @@ class ProfileNurtureWorker:
                     f"🌐 Using proxy for debug task: {selected_proxy.get('host')}:{selected_proxy.get('port')}"
                 )
 
+            logger.info("🔍 Step 5: Setting up VNC environment")
             # Настраиваем окружение для VNC
             os.environ["DISPLAY"] = f":{vnc_session.display_num}"
 
@@ -196,10 +202,11 @@ class ProfileNurtureWorker:
                 profile_dir=profile_temp_dir,
             )
 
+            logger.info("🔍 Step 6: Preparing browser args")
+
             # Подготавливаем аргументы браузера
             browser_args = [
                 "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
                 f"--user-agent={profile.user_agent}",
                 f"--window-size={vnc_session.resolution.replace('x', ',')}",
                 "--start-maximized",
@@ -211,67 +218,71 @@ class ProfileNurtureWorker:
                 "--disable-component-extensions-with-background-pages=false",
                 "--disable-features=TranslateUI",
                 "--enable-features=NetworkService,NetworkServiceLogging",
-                # f"--user-data-dir={profile_temp_dir}",
                 "--disable-features=VizDisplayCompositor",
                 "--enable-automation",
             ]
 
-            # Добавляем прокси аргументы если прокси назначена
-            if selected_proxy:
-                proxy_args = self._build_proxy_args(selected_proxy)
-                browser_args.extend(proxy_args)
+            logger.info("🔍 Step 7: Applying fingerprint to browser")
+            enhanced_browser_args = await self._apply_fingerprint_to_browser(
+                browser_args, profile
+            )
 
+            logger.info("🔍 Step 8: Launching browser with Playwright")
             # Запускаем браузер с VNC настройками и временной папкой профиля
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=False,  # ВАЖНО: НЕ headless для VNC
                     slow_mo=1500,  # Замедление для наблюдения
-                    devtools=True,  # Включаем DevTools
-                    args=browser_args,
+                    devtools=False,  # Включаем DevTools
+                    args=enhanced_browser_args,
                 )
 
-                # Создаем контекст БЕЗ прокси (прокси уже в аргументах браузера)
-                context = await browser.new_context(
-                    user_agent=profile.user_agent,
-                    viewport={
-                        "width": int(vnc_session.resolution.split("x")[0]) - 100,
-                        "height": int(vnc_session.resolution.split("x")[1]) - 100,
-                    },
-                    ignore_https_errors=True,
+                logger.info("🔍 Step 9: Creating context with fingerprint")
+                # Создаем контекст С fingerprint и прокси через Playwright
+                context = await self._create_context_with_fingerprint(
+                    browser, profile, vnc_session, selected_proxy
                 )
 
-                # Если есть cookies, устанавливаем их
-                if profile.cookies:
-                    await context.add_cookies(profile.cookies)
-
+                logger.info("🔍 Step 10: Adding debug scripts")
                 # Добавляем debug скрипт для логирования
                 await context.add_init_script(
                     f"""
-                    console.log('🔍 DEBUG MODE: Browser started for task {task.id}');
-                    console.log('🎯 Current URL:', window.location.href);
+                        console.log('🔍 DEBUG MODE: Browser started for task {task.id}');
+                        console.log('🎭 Fingerprint info:', {{
+                            userAgent: navigator.userAgent,
+                            platform: navigator.platform,
+                            hardwareConcurrency: navigator.hardwareConcurrency,
+                            deviceMemory: navigator.deviceMemory || 'not supported',
+                            languages: navigator.languages,
+                            webdriver: navigator.webdriver
+                        }});
+                        console.log('🎯 Current URL:', window.location.href);
 
-                    window.addEventListener('beforeunload', () => {{
-                        console.log('📤 Leaving:', window.location.href);
-                    }});
+                        window.addEventListener('beforeunload', () => {{
+                            console.log('📤 Leaving:', window.location.href);
+                        }});
 
-                    window.addEventListener('load', () => {{
-                        console.log('📥 Loaded:', window.location.href);
-                        console.log('🍪 Cookies:', document.cookie.split(';').length);
-                    }});
+                        window.addEventListener('load', () => {{
+                            console.log('📥 Loaded:', window.location.href);
+                            console.log('🍪 Cookies:', document.cookie.split(';').length);
+                        }});
 
-                    window.DEBUG_TASK_ID = '{task.id}';
-                """
+                        window.DEBUG_TASK_ID = '{task.id}';
+                    """
                 )
 
+                logger.info("🔍 Step 11: Creating page")
                 # Создаем страницу
                 page = await context.new_page()
 
                 try:
+                    logger.info("🔍 Step 12: Executing debug nurture")
                     # Выполняем debug нагул
                     result = await self._execute_debug_nurture(
                         task, page, context, device_type
                     )
 
+                    logger.info("🔍 Step 13: Getting final cookies")
                     # Получаем финальное количество куков
                     final_cookies = await context.cookies()
                     result["cookies_collected"] = len(final_cookies)
@@ -282,6 +293,7 @@ class ProfileNurtureWorker:
                         "resolution": vnc_session.resolution,
                     }
 
+                    logger.info("🔍 Step 14: Saving cookies to profile")
                     # Сохраняем cookies в базу данных
                     await self._save_cookies_to_profile(profile, final_cookies)
 
@@ -296,14 +308,16 @@ class ProfileNurtureWorker:
                     await asyncio.sleep(30)
 
                 finally:
+                    logger.info("🔍 Step 15: Closing context and browser")
                     await context.close()
                     await browser.close()
 
         except Exception as e:
-            logger.error(f"❌ Debug task failed: {e}")
+            logger.error(f"❌ Debug task failed at step: {e}")
             exception_to_raise = e
 
         finally:
+            logger.info("🔍 Step 16: Cleanup")
             # Cleanup выполняется ВСЕГДА
 
             # Очищаем VNC сессию
@@ -346,7 +360,7 @@ class ProfileNurtureWorker:
         strategy_id = None
 
         # Проверяем strategy_id в поле task.strategy_id (новое поле)
-        if task.strategy_id:
+        if hasattr(task, "strategy_id") and task.strategy_id:
             strategy_id = str(task.strategy_id)
             logger.info(f"📋 Using strategy_id from task.strategy_id: {strategy_id}")
 
@@ -358,26 +372,31 @@ class ProfileNurtureWorker:
         # Назначаем стратегию профилю если найдена
         if strategy_id:
             try:
-                async with async_session_maker() as session:
-                    await session.execute(
-                        update(Profile)
-                        .where(Profile.id == profile.id)
-                        .values(nurture_strategy_id=strategy_id)
-                    )
-                    await session.commit()
+                # ИСПРАВЛЕНИЕ: Используем уже существующую сессию из browser_manager
+                # вместо создания новой async_session_maker()
+                session = browser_manager.db
 
-                    # Обновляем объект в памяти
-                    profile.nurture_strategy_id = strategy_id
+                await session.execute(
+                    update(Profile)
+                    .where(Profile.id == profile.id)
+                    .values(nurture_strategy_id=strategy_id)
+                )
+                await session.commit()
 
-                    logger.info(
-                        f"📋 Assigned strategy to profile",
-                        profile_id=str(profile.id),
-                        strategy_id=strategy_id,
-                        task_id=str(task.id),
-                    )
+                # Обновляем объект в памяти
+                profile.nurture_strategy_id = strategy_id
+
+                logger.info(
+                    f"📋 Assigned strategy to profile",
+                    profile_id=str(profile.id),
+                    strategy_id=strategy_id,
+                    task_id=str(task.id),
+                )
 
             except Exception as e:
                 logger.error(f"❌ Failed to assign strategy to profile: {e}")
+                # В случае ошибки откатываем транзакцию
+                await session.rollback()
         else:
             logger.debug(
                 f"No strategy_id found in task {task.id}, profile created without strategy"
@@ -393,6 +412,7 @@ class ProfileNurtureWorker:
         # Список сайтов для дебага (включая ya.ru)
         debug_sites = [
             "https://2ip.ru",
+            "https://yandex.ru",
             # "https://ya.ru",
             # "https://www.ozon.ru",
             # "https://market.yandex.ru",
@@ -889,11 +909,31 @@ class ProfileNurtureWorker:
         self, session: AsyncSession, profile_id: str
     ) -> Profile:
         """Получить существующий профиль"""
-        result = await session.execute(select(Profile).where(Profile.id == profile_id))
-        profile = result.scalar_one_or_none()
-        if not profile:
-            raise ValueError(f"Profile {profile_id} not found")
-        return profile
+        try:
+            # Добавляем загрузку связанных данных если они нужны
+            result = await session.execute(
+                select(Profile).where(Profile.id == profile_id)
+                # Добавляем опции загрузки если нужны fingerprint_data или другие связи
+                # .options(selectinload(Profile.fingerprint_data))
+            )
+            profile = result.scalar_one_or_none()
+
+            if not profile:
+                raise ValueError(f"Profile {profile_id} not found")
+
+            logger.info(
+                f"📋 Retrieved existing profile",
+                profile_id=str(profile.id),
+                device_type=(
+                    profile.device_type.value if profile.device_type else "unknown"
+                ),
+            )
+
+            return profile
+
+        except Exception as e:
+            logger.error(f"❌ Failed to get existing profile {profile_id}: {e}")
+            raise
 
     async def _get_search_queries(
         self, queries_source: Dict[str, Any], limit: int = 20
@@ -1262,15 +1302,25 @@ class ProfileNurtureWorker:
             # Логируем что именно сохраняем ПЕРЕД сохранением
             logger.error(f"🔍 BEFORE SAVE - proxy config: {proxy_config}")
 
+            # ИСПРАВЛЕНИЕ: Используем новую независимую сессию для прокси операций
+            # Это безопасно т.к. мы работаем только с одной записью профиля
             async with async_session_maker() as session:
-                await session.execute(
-                    update(Profile)
-                    .where(Profile.id == profile.id)
-                    .values(proxy_config=proxy_config)
+                # Получаем свежую копию профиля в новой сессии
+                fresh_profile_result = await session.execute(
+                    select(Profile).where(Profile.id == profile.id)
                 )
+                fresh_profile = fresh_profile_result.scalar_one_or_none()
+
+                if not fresh_profile:
+                    logger.error(f"❌ Profile {profile.id} not found for proxy update")
+                    return
+
+                # Обновляем прокси конфигурацию
+                fresh_profile.proxy_config = proxy_config
+
                 await session.commit()
 
-                # Обновляем объект профиля в памяти
+                # Обновляем объект профиля в памяти (исходный объект)
                 profile.proxy_config = proxy_config
 
                 # Проверяем что сохранилось
@@ -1290,6 +1340,7 @@ class ProfileNurtureWorker:
 
         except Exception as e:
             logger.error(f"❌ Failed to save proxy to profile: {e}")
+            # При ошибке не пытаемся откатить транзакцию т.к. используем отдельную сессию
 
     async def _get_random_static_proxy(
         self, static_sources: List
@@ -1548,7 +1599,7 @@ class ProfileNurtureWorker:
             username = proxy_config.get("username")
             password = proxy_config.get("password")
 
-            # ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ - показываем ВСЕ что пришло
+            # ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ
             logger.error(f"🔍 FULL PROXY CONFIG DEBUG: {proxy_config}")
             logger.error(
                 f"🔍 PARSED VALUES: type={repr(proxy_type)}, host={repr(host)}, port={repr(port)}, username={repr(username)}, password={repr(password)}"
@@ -1558,20 +1609,11 @@ class ProfileNurtureWorker:
                 logger.warning("Invalid proxy config: missing host or port")
                 return proxy_args
 
-            # Проверяем что username НЕ равен type
-            if username == proxy_type:
-                logger.error(
-                    f"🚨 BUG DETECTED: username equals proxy_type! username={username}, type={proxy_type}"
-                )
-                logger.error(
-                    "🚨 This suggests parsing error in _parse_proxy_list method"
-                )
-
             # Очищаем proxy_type от протокола если он там есть
             if proxy_type.startswith("http://"):
                 clean_proxy_type = "http"
             elif proxy_type.startswith("https://"):
-                clean_proxy_type = "http"  # Chromium использует http для HTTPS прокси
+                clean_proxy_type = "http"
             elif proxy_type.startswith("socks4://"):
                 clean_proxy_type = "socks4"
             elif proxy_type.startswith("socks5://"):
@@ -1579,41 +1621,374 @@ class ProfileNurtureWorker:
             else:
                 clean_proxy_type = proxy_type.lower()
 
-            # Формируем proxy-server аргумент
-            if username and password and username != clean_proxy_type:
-                # Для прокси с авторизацией включаем username:password в URL
-                if clean_proxy_type in ["socks4", "socks5"]:
-                    proxy_server = (
-                        f"{clean_proxy_type}://{username}:{password}@{host}:{port}"
-                    )
-                else:
-                    # Для HTTP/HTTPS всегда используем http://
-                    proxy_server = f"http://{username}:{password}@{host}:{port}"
+            # ИСПРАВЛЕННЫЙ подход: разделяем настройку прокси и авторизации
+            # 1. Настраиваем прокси сервер БЕЗ авторизации в URL
+            if clean_proxy_type in ["socks4", "socks5"]:
+                proxy_server = f"{clean_proxy_type}://{host}:{port}"
             else:
-                # Прокси без авторизации ИЛИ некорректные данные
-                if username == clean_proxy_type:
-                    logger.warning(
-                        f"⚠️ Skipping auth due to username={username} == type={clean_proxy_type}"
-                    )
-
-                if clean_proxy_type in ["socks4", "socks5"]:
-                    proxy_server = f"{clean_proxy_type}://{host}:{port}"
-                else:
-                    # Для HTTP/HTTPS всегда используем http://
-                    proxy_server = f"http://{host}:{port}"
+                # Для HTTP/HTTPS прокси
+                proxy_server = f"{host}:{port}"
 
             proxy_args.append(f"--proxy-server={proxy_server}")
 
-            # Отключаем прокси для localhost
+            # 2. Отдельно настраиваем авторизацию через HTTP Basic Auth
+            if username and password and username != clean_proxy_type:
+                # Используем отдельные аргументы для авторизации
+                proxy_args.extend(
+                    [
+                        f"--proxy-auth-username={username}",
+                        f"--proxy-auth-password={password}",
+                    ]
+                )
+
+                logger.info(f"🔐 Added proxy authentication for user: {username}")
+
+            # 3. Отключаем прокси для localhost
             proxy_args.append("--proxy-bypass-list=localhost,127.0.0.1")
 
+            # 4. Дополнительные флаги для стабильной работы с прокси
+            proxy_args.extend(
+                [
+                    "--disable-features=VizDisplayCompositor",
+                    "--disable-background-networking",
+                    "--disable-background-timer-throttling",
+                    "--disable-client-side-phishing-detection",
+                ]
+            )
+
             logger.info(f"🌐 Built proxy args: {proxy_args}")
-            logger.info(f"🌐 Final proxy URL: {proxy_server}")
+            logger.info(f"🌐 Final proxy server: {proxy_server}")
 
         except Exception as e:
             logger.error(f"❌ Failed to build proxy args: {e}")
 
         return proxy_args
+
+    async def _apply_fingerprint_to_browser(
+        self, browser_args: List[str], profile: Profile
+    ) -> List[str]:
+        """Применить fingerprint настройки к аргументам браузера"""
+
+        try:
+            logger.info(f"🔍 Applying fingerprint for profile {profile.id}")
+
+            # ИСПРАВЛЕНИЕ: Используем ТОЛЬКО JSON поле fingerprint, избегаем fingerprint_data relationship
+            fingerprint_data = None
+
+            # Проверяем есть ли JSON fingerprint (это безопасно, не вызывает SQL запросы)
+            if hasattr(profile, "fingerprint") and profile.fingerprint:
+                fingerprint_data = profile.fingerprint
+                logger.info("🔍 Using JSON fingerprint data from profile.fingerprint")
+            else:
+                logger.warning(f"Profile {profile.id} has no JSON fingerprint data")
+
+            if not fingerprint_data or not isinstance(fingerprint_data, dict):
+                logger.warning(
+                    f"Profile {profile.id} has invalid fingerprint data, using defaults"
+                )
+                # Используем дефолтные значения
+                screen_resolution = "1920x1080"
+                viewport_size = "1920x1080"
+                timezone = "Europe/Moscow"
+                language = "ru-RU"
+                platform = "Win32"
+                cpu_cores = 4
+                memory_size = 8192
+                color_depth = 24
+                pixel_ratio = 1.0
+            else:
+                logger.info("🔍 Extracting parameters from JSON fingerprint")
+                # Извлекаем параметры из JSON fingerprint
+                fp = fingerprint_data
+                screen_resolution = f"{fp.get('screen', {}).get('width', 1920)}x{fp.get('screen', {}).get('height', 1080)}"
+                viewport_size = f"{fp.get('viewport', {}).get('width', 1920)}x{fp.get('viewport', {}).get('height', 1080)}"
+                timezone = fp.get("timezone", {}).get("timezone", "Europe/Moscow")
+                language = fp.get("browser", {}).get("language", "ru-RU")
+                platform = fp.get("browser", {}).get("platform", "Win32")
+                cpu_cores = fp.get("hardware", {}).get("cpu_cores", 4)
+                memory_size = fp.get("hardware", {}).get("memory_size", 8192)
+                color_depth = fp.get("screen", {}).get("color_depth", 24)
+                pixel_ratio = fp.get("screen", {}).get("device_pixel_ratio", 1.0)
+
+            # Добавляем fingerprint аргументы
+            fingerprint_args = [
+                # Основные аргументы для маскировки
+                "--disable-blink-features=AutomationControlled",
+                "--exclude-switches=enable-automation",
+                "--disable-extensions-except",
+                "--disable-component-extensions-with-background-pages=false",
+                # Отключаем детекцию webdriver
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+                "--allow-running-insecure-content",
+                # Настройки памяти и CPU (ограничиваем под fingerprint)
+                f"--max_old_space_size={memory_size}",
+                f"--js-flags=--max-old-space-size={memory_size}",
+                # Локализация и временная зона
+                f"--lang={language}",
+                f"--accept-lang={language}",
+                # Отключение функций, которые могут выдать автоматизацию
+                "--disable-default-apps",
+                "--disable-sync",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=TranslateUI,BlinkGenPropertyTrees",
+                "--disable-ipc-flooding-protection",
+            ]
+
+            # Добавляем к существующим аргументам
+            enhanced_args = browser_args + fingerprint_args
+
+            logger.info(
+                f"🔍 Applied fingerprint to browser args",
+                profile_id=str(profile.id),
+                screen_resolution=screen_resolution,
+                timezone=timezone,
+                language=language,
+                cpu_cores=cpu_cores,
+                memory_mb=memory_size,
+            )
+
+            return enhanced_args
+
+        except Exception as e:
+            logger.error(f"❌ Failed to apply fingerprint: {e}")
+            # Возвращаем оригинальные аргументы в случае ошибки
+            return browser_args
+
+    async def _create_context_with_fingerprint(
+        self,
+        browser: Browser,
+        profile: Profile,
+        vnc_session,
+        selected_proxy: Optional[Dict[str, Any]] = None,
+    ) -> BrowserContext:
+        """Создать контекст браузера с полным применением fingerprint"""
+
+        try:
+            logger.info(
+                f"🔍 Creating context with fingerprint for profile {profile.id}"
+            )
+
+            # Базовые настройки viewport
+            viewport_width = 1920
+            viewport_height = 1080
+
+            # ИСПРАВЛЕНИЕ: Используем ТОЛЬКО JSON поле fingerprint
+            fingerprint_data = None
+            if (
+                hasattr(profile, "fingerprint")
+                and profile.fingerprint
+                and isinstance(profile.fingerprint, dict)
+            ):
+                fingerprint_data = profile.fingerprint
+                logger.info("🔍 Using JSON fingerprint data for context")
+
+            if fingerprint_data:
+                # Из JSON fingerprint
+                viewport_width = fingerprint_data.get("viewport", {}).get("width", 1920)
+                viewport_height = fingerprint_data.get("viewport", {}).get(
+                    "height", 1080
+                )
+
+            # Если есть VNC сессия - подстраиваем под ее разрешение
+            if vnc_session and vnc_session.resolution:
+                vnc_parts = vnc_session.resolution.split("x")
+                if len(vnc_parts) == 2:
+                    try:
+                        vnc_width = int(vnc_parts[0])
+                        vnc_height = int(vnc_parts[1])
+                        viewport_width = min(viewport_width, vnc_width - 100)
+                        viewport_height = min(viewport_height, vnc_height - 100)
+                    except ValueError:
+                        logger.warning(
+                            f"Invalid VNC resolution format: {vnc_session.resolution}"
+                        )
+
+            # Получаем остальные параметры fingerprint с дефолтными значениями
+            timezone_id = "Europe/Moscow"
+            locale = "ru-RU"
+            device_scale_factor = 1.0
+            has_touch = False
+
+            if fingerprint_data:
+                timezone_id = fingerprint_data.get("timezone", {}).get(
+                    "timezone", "Europe/Moscow"
+                )
+                locale = fingerprint_data.get("browser", {}).get("language", "ru-RU")
+                device_scale_factor = fingerprint_data.get("screen", {}).get(
+                    "device_pixel_ratio", 1.0
+                )
+                has_touch = fingerprint_data.get("touch", {}).get(
+                    "touch_support", False
+                )
+
+            # Настройка прокси
+            proxy_config = None
+            if selected_proxy:
+                proxy_config = {
+                    "server": f"http://{selected_proxy['host']}:{selected_proxy['port']}",
+                }
+                if selected_proxy.get("username") and selected_proxy.get("password"):
+                    proxy_config["username"] = selected_proxy["username"]
+                    proxy_config["password"] = selected_proxy["password"]
+
+            # Создаем контекст с полными настройками fingerprint
+            context = await browser.new_context(
+                user_agent=profile.user_agent,
+                viewport={"width": viewport_width, "height": viewport_height},
+                locale=locale,
+                timezone_id=timezone_id,
+                device_scale_factor=device_scale_factor,
+                has_touch=has_touch,
+                ignore_https_errors=True,
+                proxy=proxy_config,
+                # Дополнительные настройки для маскировки
+                java_script_enabled=True,
+                bypass_csp=True,
+            )
+
+            # Применяем fingerprint через JavaScript
+            await self._inject_fingerprint_scripts(context, profile)
+
+            # Восстанавливаем cookies
+            if profile.cookies:
+                try:
+                    await context.add_cookies(profile.cookies)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to restore cookies for profile {profile.id}: {e}"
+                    )
+
+            logger.info(
+                f"🎭 Created context with fingerprint",
+                profile_id=str(profile.id),
+                viewport=f"{viewport_width}x{viewport_height}",
+                timezone=timezone_id,
+                locale=locale,
+                scale_factor=device_scale_factor,
+                has_touch=has_touch,
+            )
+
+            return context
+
+        except Exception as e:
+            logger.error(f"❌ Failed to create context with fingerprint: {e}")
+            raise
+
+    async def _inject_fingerprint_scripts(
+        self, context: BrowserContext, profile: Profile
+    ):
+        """Внедрить JavaScript скрипты для маскировки fingerprint"""
+
+        try:
+            # ИСПРАВЛЕНИЕ: Используем ТОЛЬКО JSON поле fingerprint
+            fingerprint_data = None
+            if (
+                hasattr(profile, "fingerprint")
+                and profile.fingerprint
+                and isinstance(profile.fingerprint, dict)
+            ):
+                fingerprint_data = profile.fingerprint
+
+            # Извлекаем параметры fingerprint с дефолтными значениями
+            cpu_cores = 4
+            memory_size = 8192
+            platform = "Win32"
+            webdriver_present = False
+
+            if fingerprint_data:
+                # JSON fingerprint
+                cpu_cores = fingerprint_data.get("hardware", {}).get("cpu_cores", 4)
+                memory_size = fingerprint_data.get("hardware", {}).get(
+                    "memory_size", 8192
+                )
+                platform = fingerprint_data.get("browser", {}).get("platform", "Win32")
+                webdriver_present = False  # Всегда скрываем
+            else:
+                logger.info(
+                    f"No JSON fingerprint data for profile {profile.id}, using defaults"
+                )
+
+            # JavaScript код для маскировки fingerprint
+            fingerprint_script = f"""
+            // Скрываем WebDriver
+            Object.defineProperty(navigator, 'webdriver', {{
+                get: () => {str(webdriver_present).lower()},
+            }});
+
+            // Переопределяем navigator.platform
+            Object.defineProperty(navigator, 'platform', {{
+                get: () => '{platform}',
+            }});
+
+            // Переопределяем количество ядер CPU
+            Object.defineProperty(navigator, 'hardwareConcurrency', {{
+                get: () => {cpu_cores},
+            }});
+
+            // Переопределяем память устройства (если поддерживается)
+            if ('deviceMemory' in navigator) {{
+                Object.defineProperty(navigator, 'deviceMemory', {{
+                    get: () => {memory_size // 1024},  // В GB
+                }});
+            }}
+
+            // Переопределяем языки
+            Object.defineProperty(navigator, 'languages', {{
+                get: () => ['ru-RU', 'ru', 'en-US', 'en'],
+            }});
+
+            // Скрываем automation флаги
+            if (window.chrome) {{
+                Object.defineProperty(window.chrome, 'runtime', {{
+                    get: () => undefined,
+                }});
+            }}
+
+            // Переопределяем plugins (делаем вид что есть плагины)
+            Object.defineProperty(navigator, 'plugins', {{
+                get: () => [
+                    {{ name: "PDF Viewer", description: "Portable Document Format", filename: "internal-pdf-viewer" }},
+                    {{ name: "Chrome PDF Plugin", description: "Portable Document Format", filename: "internal-pdf-viewer" }},
+                    {{ name: "Chromium PDF Plugin", description: "Portable Document Format", filename: "internal-pdf-viewer" }},
+                ],
+            }});
+
+            // Маскируем permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({{ state: Notification.permission }}) :
+                    originalQuery(parameters)
+            );
+
+            // Отключаем некоторые детекционные методы
+            window.outerHeight = window.innerHeight;
+            window.outerWidth = window.innerWidth;
+
+            console.log('🎭 Fingerprint masking applied', {{
+                platform: '{platform}',
+                cpu_cores: {cpu_cores},
+                memory_gb: {memory_size // 1024},
+                webdriver_hidden: true
+            }});
+            """
+
+            await context.add_init_script(fingerprint_script)
+
+            logger.info(
+                f"🎭 Injected fingerprint scripts",
+                profile_id=str(profile.id),
+                cpu_cores=cpu_cores,
+                memory_mb=memory_size,
+                platform=platform,
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Failed to inject fingerprint scripts: {e}")
+            # Не поднимаем исключение, чтобы не нарушить работу браузера
 
 
 # Глобальный экземпляр worker'а

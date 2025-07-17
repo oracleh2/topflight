@@ -164,41 +164,6 @@ class FingerprintGenerator:
         else:  # DeviceType.DESKTOP
             return cls._generate_desktop_fingerprint()
 
-    # @classmethod
-    # def create_browser_settings(cls, fingerprint: Dict[str, Any]) -> Dict[str, Any]:
-    #     """Создает настройки браузера на основе fingerprint"""
-    #     device_type = fingerprint.get("device_type", "desktop")
-    #
-    #     base_settings = {
-    #         "viewport": {
-    #             "width": fingerprint["viewport"]["width"],
-    #             "height": fingerprint["viewport"]["height"],
-    #         },
-    #         "user_agent": fingerprint["browser"]["user_agent"],
-    #         "locale": fingerprint["browser"]["language"],
-    #         "timezone_id": fingerprint["timezone"]["timezone"],
-    #         "device_scale_factor": fingerprint["screen"]["device_pixel_ratio"],
-    #         "has_touch": fingerprint["touch"]["touch_support"],
-    #         "color_scheme": "light",
-    #         "reduced_motion": "no-preference",
-    #         "forced_colors": "none",
-    #     }
-    #
-    #     if device_type == "mobile":
-    #         base_settings.update(
-    #             {
-    #                 "is_mobile": True,
-    #                 "touch_support": True,
-    #                 "mobile_emulation": {
-    #                     "device_name": cls._get_mobile_device_name(fingerprint),
-    #                 },
-    #             }
-    #         )
-    #
-    #     return base_settings
-
-    # ===================== ГЕНЕРАЦИЯ FINGERPRINT =====================
-
     @classmethod
     def _generate_desktop_fingerprint(cls) -> Dict[str, Any]:
         """Генерирует fingerprint для desktop устройства"""
@@ -763,6 +728,29 @@ class FingerprintGenerator:
         else:
             return "Generic Mobile"
 
+    @staticmethod
+    def _get_mobile_device_name_safe(fingerprint: Dict[str, Any]) -> str:
+        """Безопасное определение названия мобильного устройства по fingerprint"""
+        try:
+            user_agent = fingerprint.get("browser", {}).get("user_agent", "")
+
+            if "iPhone" in user_agent:
+                if "iPhone OS 17" in user_agent or "OS 17_" in user_agent:
+                    return "iPhone 14"
+                elif "iPhone OS 16" in user_agent or "OS 16_" in user_agent:
+                    return "iPhone 13"
+                else:
+                    return "iPhone 12"
+            elif "Samsung" in user_agent:
+                return "Galaxy S21"
+            elif "Pixel" in user_agent:
+                return "Pixel 6"
+            else:
+                return "Generic Mobile"
+        except Exception:
+            # Fallback на дефолтное устройство при любой ошибке
+            return "Generic Mobile"
+
     @classmethod
     def generate_fingerprint(
         cls, device_type: DeviceType = DeviceType.DESKTOP
@@ -805,7 +793,9 @@ class FingerprintGenerator:
                     "is_mobile": True,
                     "touch_support": True,
                     "mobile_emulation": {
-                        "device_name": cls._get_mobile_device_name(fingerprint),
+                        "device_name": FingerprintGenerator._get_mobile_device_name_safe(
+                            fingerprint
+                        ),
                     },
                 }
             )
