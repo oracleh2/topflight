@@ -319,7 +319,8 @@ import {
     EllipsisVerticalIcon,
     MagnifyingGlassIcon,
     CheckCircleIcon,
-    CogIcon,
+    CogIcon, DocumentTextIcon,
+
 } from '@heroicons/vue/24/outline'
 import {useTasksStore, type Task} from '@/stores/tasks'
 import Spinner from '@/components/ui/Spinner.vue'
@@ -377,7 +378,7 @@ const formatDateTime = (dateString: string) => {
 const getTaskIcon = (taskType: string) => {
     switch (taskType) {
         case 'parse_serp':
-            return SearchIcon
+            return MagnifyingGlassIcon
         case 'check_positions':
             return CheckCircleIcon
         case 'warmup_profile':

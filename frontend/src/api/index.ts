@@ -717,7 +717,40 @@ class ApiClient {
     async getStrategiesWithLimits(strategyType?: string | null) {
         const params = strategyType ? {strategy_type: strategyType} : {}
         const response = await api.get('/strategies/', {params})
-        console.log(response.data)
+        // console.log(response.data)
+        return response.data
+    }
+
+    async getProfileNurtureTasks(strategyId: string, params?: {
+        limit?: number
+        offset?: number
+        status?: string
+    }) {
+        const response = await this.client.get(`/strategies/profile-nurture/${strategyId}/tasks`, {params})
+        return response.data
+    }
+
+    /**
+     * Отменить задачу нагула
+     */
+    async cancelNurtureTask(strategyId: string, taskId: string) {
+        const response = await this.client.delete(`/strategies/profile-nurture/${strategyId}/tasks/${taskId}`)
+        return response.data
+    }
+
+    /**
+     * Получить статистику очереди задач нагула
+     */
+    async getNurtureQueueStats() {
+        const response = await this.client.get('/strategies/profile-nurture/queue/stats')
+        return response.data
+    }
+
+    /**
+     * Проверить здоровье worker'а нагула
+     */
+    async getNurtureWorkerHealth() {
+        const response = await this.client.post('/strategies/profile-nurture/worker/health')
         return response.data
     }
 }

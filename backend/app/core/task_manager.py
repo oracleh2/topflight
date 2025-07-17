@@ -28,7 +28,9 @@ from app.database import async_session_maker
 from .browser_manager import BrowserManager
 from .strategy_executor import StrategyExecutor
 from .vnc_manager import vnc_manager
-from ..schemas.strategies import StrategyType
+
+# from ..schemas.strategies import StrategyType
+from app.constants.strategies import StrategyType as StrategyTypeEnum
 
 logger = structlog.get_logger(__name__)
 
@@ -1453,18 +1455,18 @@ class TaskManager:
     async def create_profile_nurture_task(
         self,
         strategy_id: str,
-        priority: int = 3,
+        priority: int = 5,
         device_type: DeviceType = DeviceType.DESKTOP,
         profile_id: Optional[str] = None,
         reserved_amount: Optional[float] = None,
     ) -> Task:
         """Создать задачу нагула профиля"""
 
-        # Получаем стратегию
+        # Получаем стратегию и валидируем
         strategy_query = select(UserStrategy).where(
             and_(
                 UserStrategy.id == strategy_id,
-                UserStrategy.strategy_type == StrategyType.PROFILE_NURTURE,
+                UserStrategy.strategy_type == StrategyTypeEnum.PROFILE_NURTURE,
                 UserStrategy.is_active == True,
             )
         )
@@ -1472,19 +1474,48 @@ class TaskManager:
         strategy = result.scalar_one_or_none()
 
         if not strategy:
-            raise ValueError(f"Стратегия нагула профиля {strategy_id} не найдена")
+            raise ValueError(
+                f"Стратегия нагула профиля {strategy_id} не найдена или неактивна"
+            )
+
+        # Получаем конфигурацию стратегии
+        config = strategy.config or {}
+
+        # Подготавливаем параметры задачи
+        task_parameters = {
+            "strategy_id": strategy_id,
+            "strategy_name": strategy.name,
+            "strategy_config": config,
+            "user_id": str(strategy.user_id),
+            "nurture_type": config.get("nurture_type", "search_based"),
+            "target_cookies": config.get("target_cookies", {"min": 50, "max": 100}),
+            "session_config": config.get("session_config", {}),
+            "search_engines": config.get("search_engines", ["yandex.ru"]),
+            "queries_source": config.get("queries_source", {}),
+            "behavior": config.get("behavior", {}),
+            "created_at": datetime.utcnow().isoformat(),
+        }
+
+        # Если передан конкретный профиль, добавляем его в параметры
+        if profile_id:
+            # Проверяем существование профиля
+            profile_query = select(Profile).where(Profile.id == profile_id)
+            profile_result = await self.db.execute(profile_query)
+            profile = profile_result.scalar_one_or_none()
+            if not profile:
+                raise ValueError(f"Профиль {profile_id} не найден")
+
+            task_parameters["profile_id"] = profile_id
+            task_parameters["profile_name"] = profile.name
 
         # Создаем задачу
         task = Task(
             task_type=TaskType.PROFILE_NURTURE.value,
             priority=priority,
-            device_type=device_type.value,  # Используем значение enum
+            device_type=device_type.value,
             profile_id=profile_id,
-            parameters={
-                "strategy_id": strategy_id,
-                "strategy_config": strategy.config,
-                "user_id": str(strategy.user_id),
-            },
+            user_id=strategy.user_id,  # ВАЖНО: привязываем к пользователю
+            parameters=task_parameters,
             status=TaskStatus.PENDING.value,
             reserved_amount=reserved_amount,
             created_at=datetime.utcnow(),
@@ -1498,9 +1529,105 @@ class TaskManager:
             "Profile nurture task created",
             task_id=str(task.id),
             strategy_id=strategy_id,
+            strategy_name=strategy.name,
+            user_id=str(strategy.user_id),
             priority=priority,
             device_type=device_type.value,
+            profile_id=profile_id,
             reserved_amount=reserved_amount,
+            nurture_type=config.get("nurture_type"),
         )
 
         return task
+
+    async def get_pending_nurture_tasks(
+        self, limit: int = 10, device_type: Optional[DeviceType] = None
+    ) -> List[Task]:
+        """Получить задачи нагула для выполнения"""
+
+        query = (
+            select(Task)
+            .where(
+                and_(
+                    Task.task_type == TaskType.PROFILE_NURTURE.value,
+                    Task.status == TaskStatus.PENDING.value,
+                )
+            )
+            .order_by(Task.priority.desc(), Task.created_at.asc())
+            .limit(limit)
+        )
+
+        if device_type:
+            query = query.where(Task.device_type == device_type.value)
+
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
+    async def mark_task_started(
+        self, task_id: str, worker_id: Optional[str] = None
+    ) -> bool:
+        """Отметить задачу как запущенную"""
+
+        update_query = (
+            update(Task)
+            .where(
+                and_(
+                    Task.id == task_id,
+                    Task.status == TaskStatus.PENDING.value,
+                )
+            )
+            .values(
+                status=TaskStatus.RUNNING.value,
+                started_at=datetime.utcnow(),
+                worker_id=worker_id,
+            )
+        )
+
+        result = await self.db.execute(update_query)
+        await self.db.commit()
+
+        return result.rowcount > 0
+
+    async def mark_task_completed(
+        self, task_id: str, result_data: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Отметить задачу как завершенную"""
+
+        update_query = (
+            update(Task)
+            .where(Task.id == task_id)
+            .values(
+                status=TaskStatus.COMPLETED.value,
+                completed_at=datetime.utcnow(),
+                result=result_data,
+            )
+        )
+
+        result = await self.db.execute(update_query)
+        await self.db.commit()
+
+        return result.rowcount > 0
+
+    async def mark_task_failed(
+        self,
+        task_id: str,
+        error_message: str,
+        result_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Отметить задачу как неудачную"""
+
+        update_query = (
+            update(Task)
+            .where(Task.id == task_id)
+            .values(
+                status=TaskStatus.FAILED.value,
+                completed_at=datetime.utcnow(),
+                error_message=error_message,
+                result=result_data,
+            )
+        )
+
+        result = await self.db.execute(update_query)
+        await self.db.commit()
+
+        return result.rowcount > 0

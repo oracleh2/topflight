@@ -1,6 +1,6 @@
 # backend/app/api/strategies.py
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from sqlalchemy import select, and_
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from sqlalchemy import select, and_, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 import json
@@ -8,6 +8,7 @@ import csv
 import io
 import traceback
 
+from app.models import Task
 from app.constants.strategies import (
     validate_warmup_config,
     validate_position_check_config,
@@ -40,6 +41,7 @@ try:
         StrategyType,
         DataSourceResponse,
     )
+    from app.constants.strategies import StrategyType as StrategyTypeEnum
 except ImportError as e:
     print(f"Warning: Could not import some strategy schemas: {e}")
     # Создаем базовые схемы для работы
@@ -754,7 +756,7 @@ async def spawn_nurture_tasks(
         and_(
             UserStrategy.id == strategy_id,
             UserStrategy.user_id == current_user.id,
-            UserStrategy.strategy_type == StrategyType.PROFILE_NURTURE,
+            UserStrategy.strategy_type == StrategyTypeEnum.PROFILE_NURTURE,
         )
     )
     result = await session.execute(query)
@@ -793,6 +795,275 @@ async def auto_maintain_strategies(
     result = await limits_service.auto_maintain_all_strategies(str(current_user.id))
 
     return result
+
+
+@router.get("/profile-nurture/{strategy_id}/tasks")
+async def get_strategy_nurture_tasks(
+    strategy_id: str,
+    limit: int = Query(20, le=100),
+    offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(None, description="Фильтр по статусу задач"),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить задачи нагула для конкретной стратегии"""
+
+    # Проверяем, что стратегия принадлежит пользователю
+    strategy_query = select(UserStrategy).where(
+        and_(
+            UserStrategy.id == strategy_id,
+            UserStrategy.user_id == current_user.id,
+            UserStrategy.strategy_type == StrategyTypeEnum.PROFILE_NURTURE,
+        )
+    )
+    result = await session.execute(strategy_query)
+    strategy = result.scalar_one_or_none()
+
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Стратегия не найдена")
+
+    # Получаем задачи
+    tasks_query = (
+        select(Task)
+        .where(
+            and_(
+                Task.task_type == "profile_nurture",
+                Task.parameters.op("->>")("strategy_id") == strategy_id,  # ИСПРАВЛЕНО
+            )
+        )
+        .order_by(Task.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    if status:
+        tasks_query = tasks_query.where(Task.status == status)
+
+    tasks_result = await session.execute(tasks_query)
+    tasks = tasks_result.scalars().all()
+
+    # Подсчитываем общее количество
+    count_query = select(func.count(Task.id)).where(
+        and_(
+            Task.task_type == "profile_nurture",
+            Task.parameters.op("->>")("strategy_id") == strategy_id,
+        )
+    )
+    if status:
+        count_query = count_query.where(Task.status == status)
+
+    count_result = await session.execute(count_query)
+    total_count = count_result.scalar() or 0
+
+    # Подсчитываем статистику
+    stats_query = (
+        select(Task.status, func.count(Task.id))
+        .where(
+            and_(
+                Task.task_type == "profile_nurture",
+                Task.parameters.op("->>")("strategy_id") == strategy_id,
+            )
+        )
+        .group_by(Task.status)
+    )
+
+    stats_result = await session.execute(stats_query)
+    stats = {status: count for status, count in stats_result.fetchall()}
+
+    return {
+        "success": True,
+        "strategy_id": strategy_id,
+        "strategy_name": strategy.name,
+        "tasks": [
+            {
+                "task_id": str(task.id),
+                "status": task.status,
+                "priority": task.priority,
+                "device_type": task.device_type,
+                "profile_id": task.profile_id,
+                "created_at": task.created_at.isoformat(),
+                "started_at": task.started_at.isoformat() if task.started_at else None,
+                "completed_at": (
+                    task.completed_at.isoformat() if task.completed_at else None
+                ),
+                "error_message": task.error_message,
+                "worker_id": task.worker_id,
+                "result": task.result,
+                "parameters": task.parameters,
+            }
+            for task in tasks
+        ],
+        "pagination": {
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(tasks) < total_count,
+        },
+        "stats": {
+            "total": total_count,
+            "pending": stats.get("pending", 0),
+            "running": stats.get("running", 0),
+            "completed": stats.get("completed", 0),
+            "failed": stats.get("failed", 0),
+        },
+    }
+
+
+@router.delete("/profile-nurture/{strategy_id}/tasks/{task_id}")
+async def cancel_nurture_task(
+    strategy_id: str,
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Отменить задачу нагула"""
+
+    # Проверяем права доступа
+    strategy_query = select(UserStrategy).where(
+        and_(
+            UserStrategy.id == strategy_id,
+            UserStrategy.user_id == current_user.id,
+            UserStrategy.strategy_type == StrategyType.PROFILE_NURTURE,
+        )
+    )
+    result = await session.execute(strategy_query)
+    strategy = result.scalar_one_or_none()
+
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Стратегия не найдена")
+
+    # Проверяем задачу
+    task_query = select(Task).where(
+        and_(
+            Task.id == task_id,
+            Task.task_type == "profile_nurture",
+            Task.parameters["strategy_id"] == strategy_id,  # УБРАЛИ .astext
+        )
+    )
+    task_result = await session.execute(task_query)
+    task = task_result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    # Можно отменить только pending задачи
+    if task.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нельзя отменить задачу в статусе {task.status}",
+        )
+
+    # Обновляем статус задачи
+    update_query = (
+        update(Task)
+        .where(Task.id == task_id)
+        .values(
+            status="cancelled",
+            completed_at=datetime.utcnow(),
+            error_message="Отменено пользователем",
+        )
+    )
+
+    await session.execute(update_query)
+    await session.commit()
+
+    return {
+        "success": True,
+        "message": "Задача отменена",
+        "task_id": task_id,
+    }
+
+
+@router.post("/profile-nurture/worker/health")
+async def nurture_worker_health():
+    """Проверка состояния worker'а нагула"""
+    from app.workers.profile_nurture_worker import profile_nurture_worker
+
+    return {
+        "success": True,
+        "worker_id": profile_nurture_worker.worker_id,
+        "is_running": profile_nurture_worker.is_running,
+        "status": "healthy" if profile_nurture_worker.is_running else "stopped",
+    }
+
+
+@router.get("/profile-nurture/queue/stats")
+async def get_nurture_queue_stats(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить статистику очереди задач нагула"""
+
+    # Общая статистика по задачам пользователя
+    user_stats_query = (
+        select(Task.status, func.count(Task.id))
+        .where(
+            and_(
+                Task.task_type == "profile_nurture",
+                Task.user_id == current_user.id,
+            )
+        )
+        .group_by(Task.status)
+    )
+
+    user_stats_result = await session.execute(user_stats_query)
+    user_stats = {status: count for status, count in user_stats_result.fetchall()}
+
+    # Глобальная статистика очереди
+    global_stats_query = (
+        select(Task.status, func.count(Task.id))
+        .where(Task.task_type == "profile_nurture")
+        .group_by(Task.status)
+    )
+
+    global_stats_result = await session.execute(global_stats_query)
+    global_stats = {status: count for status, count in global_stats_result.fetchall()}
+
+    # Последние задачи пользователя
+    recent_tasks_query = (
+        select(Task)
+        .where(
+            and_(
+                Task.task_type == "profile_nurture",
+                Task.user_id == current_user.id,
+            )
+        )
+        .order_by(Task.created_at.desc())
+        .limit(5)
+    )
+
+    recent_tasks_result = await session.execute(recent_tasks_query)
+    recent_tasks = recent_tasks_result.scalars().all()
+
+    return {
+        "success": True,
+        "user_stats": {
+            "total": sum(user_stats.values()),
+            "pending": user_stats.get("pending", 0),
+            "running": user_stats.get("running", 0),
+            "completed": user_stats.get("completed", 0),
+            "failed": user_stats.get("failed", 0),
+        },
+        "global_stats": {
+            "total": sum(global_stats.values()),
+            "pending": global_stats.get("pending", 0),
+            "running": global_stats.get("running", 0),
+            "completed": global_stats.get("completed", 0),
+            "failed": global_stats.get("failed", 0),
+        },
+        "recent_tasks": [
+            {
+                "task_id": str(task.id),
+                "status": task.status,
+                "strategy_id": task.parameters.get("strategy_id"),
+                "created_at": task.created_at.isoformat(),
+                "completed_at": (
+                    task.completed_at.isoformat() if task.completed_at else None
+                ),
+            }
+            for task in recent_tasks
+        ],
+    }
 
 
 @router.delete("/{strategy_id}")

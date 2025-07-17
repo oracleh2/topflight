@@ -78,6 +78,12 @@ const router = createRouter({
                     meta: {requiresAuth: true}
                 },
                 {
+                    path: '/nurture-tasks',
+                    name: 'NurtureTasks',
+                    component: () => import('@/views/nurture/TasksMonitor.vue'),
+                    meta: {requiresAuth: true}
+                },
+                {
                     path: "/admin/debug",
                     name: "TaskDebug",
                     component: () => import("@/components/admin/TaskDebugPanel.vue"),

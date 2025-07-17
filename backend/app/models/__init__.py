@@ -82,6 +82,7 @@ __all__ = [
     "Profile",
     "ProfileFingerprint",
     "ProfileLifecycle",
+    "DeviceType",
     # Task models
     "Task",
     "ParseResult",

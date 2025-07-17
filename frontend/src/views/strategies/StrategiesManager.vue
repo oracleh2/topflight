@@ -250,6 +250,7 @@
                                     :strategy="strategy"
                                     @edit="editStrategy(strategy)"
                                     @refresh="handleStrategyRefresh"
+                                    @show-tasks="showTasksModal(strategy.id)"
                                 />
                             </div>
 
@@ -444,6 +445,13 @@
             :strategy="selectedStrategy"
             @close="showProxyManagerModal = false"
         />
+
+        <!-- ДОБАВИТЬ: Модальное окно мониторинга задач -->
+        <ProfileNurtureTasksModal
+            v-if="showTasksModalId"
+            :strategy-id="showTasksModalId"
+            @close="showTasksModalId = null"
+        />
     </div>
 </template>
 
@@ -476,6 +484,8 @@ import StrategyConfigSummary from '@/components/strategies/StrategyConfigSummary
 import AddDataSourceModal from '@/components/modals/AddDataSourceModal.vue'
 import StrategyProxyManager from '@/components/strategies/StrategyProxyManager.vue'
 import ProxyManagerModal from "@/components/strategies/ProxyManagerModal.vue";
+import ProfileNurtureTasksModal from '@/components/strategies/ProfileNurtureTasksModal.vue'
+
 import {api} from '@/api'
 
 
@@ -489,6 +499,7 @@ const showAddDataSourceModal = ref(false)
 const showProxyManagerModal = ref(false)
 const refreshingStatus = ref(false)
 const maintainingAll = ref(false)
+const showTasksModalId = ref<string | null>(null)
 
 
 const tabs = computed(() => [
@@ -512,6 +523,10 @@ const tabs = computed(() => [
     },
 
 ])
+
+const showTasksModal = (strategyId: string) => {
+    showTasksModalId.value = strategyId
+}
 
 const currentStrategies = computed(() => {
     switch (activeTab.value) {

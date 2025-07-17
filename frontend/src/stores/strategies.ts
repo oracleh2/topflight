@@ -65,6 +65,9 @@ export const useStrategiesStore = defineStore('strategies', () => {
     const executions = ref<StrategyExecution[]>([])
     const loading = ref(false)
     const error = ref<string | null>(null)
+    const nurtureTasks = ref<any[]>([])
+    const nurtureTasksStats = ref<any>(null)
+    const nurtureWorkerStatus = ref<any>(null)
 
     // Computed getters
     const warmupStrategies = computed(() =>
@@ -97,6 +100,14 @@ export const useStrategiesStore = defineStore('strategies', () => {
 
     const strategiesNeedingNurture = computed(() =>
         profileNurtureStrategies.value.filter(s => s.nurture_status?.needs_nurture)
+    )
+
+    const pendingNurtureTasks = computed(() =>
+        nurtureTasks.value.filter(task => task.status === 'pending')
+    )
+
+    const runningNurtureTasks = computed(() =>
+        nurtureTasks.value.filter(task => task.status === 'running')
     )
 
     async function spawnNurtureTasks(strategyId: string) {
@@ -825,6 +836,48 @@ export const useStrategiesStore = defineStore('strategies', () => {
         }
     }
 
+    async function fetchNurtureTasks(strategyId: string, params?: any) {
+        try {
+            loading.value = true
+            const response = await api.getProfileNurtureTasks(strategyId, params)
+
+            if (response.success) {
+                if (params?.offset > 0) {
+                    nurtureTasks.value.push(...response.tasks)
+                } else {
+                    nurtureTasks.value = response.tasks
+                }
+                nurtureTasksStats.value = response.stats
+                return response
+            }
+        } catch (err) {
+            error.value = err.message
+            throw err
+        } finally {
+            loading.value = false
+        }
+    }
+
+    async function cancelNurtureTask(strategyId: string, taskId: string) {
+        try {
+            const response = await api.cancelNurtureTask(strategyId, taskId)
+
+            if (response.success) {
+                // Обновляем локальное состояние
+                const taskIndex = nurtureTasks.value.findIndex(task => task.task_id === taskId)
+                if (taskIndex !== -1) {
+                    nurtureTasks.value[taskIndex].status = 'cancelled'
+                }
+            }
+
+            return response
+        } catch (err) {
+            error.value = err.message
+            throw err
+        }
+    }
+
+
     return {
         // State
         strategies,
@@ -843,6 +896,12 @@ export const useStrategiesStore = defineStore('strategies', () => {
 
         criticalStrategies,              // ДОБАВИТЬ
         strategiesNeedingNurture,        // ДОБАВИТЬ
+
+        nurtureTasks,
+        nurtureTasksStats,
+        nurtureWorkerStatus,
+        pendingNurtureTasks,
+        runningNurtureTasks,
 
         // Methods
         fetchStrategyTemplates,
@@ -901,6 +960,10 @@ export const useStrategiesStore = defineStore('strategies', () => {
         maintainAllStrategies,          // ДОБАВИТЬ
         getProfileNurtureStatus,        // ДОБАВИТЬ
         getAllProfileNurtureStatus,     // ДОБАВИТЬ
+
+
+        fetchNurtureTasks,
+        cancelNurtureTask,
 
         cleanProfileNurtureConfig
     }

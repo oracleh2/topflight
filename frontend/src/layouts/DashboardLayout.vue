@@ -277,6 +277,12 @@ const navigation = computed(() => {
         {name: 'Domains', label: 'Домены', to: '/domains', icon: GlobeAltIcon},
         {name: 'Billing', label: 'Биллинг', to: '/billing', icon: CreditCardIcon},
         {name: 'Tasks', label: 'Задачи', to: '/tasks', icon: ClipboardDocumentListIcon},
+        {
+            name: 'NurtureTasks',
+            label: 'Задачи нагула',
+            to: '/nurture-tasks',
+            icon: ClipboardDocumentListIcon
+        },
 
         {name: 'Strategies', label: 'Стратегии', to: '/strategies', icon: CurrencyDollarIcon},
     ]

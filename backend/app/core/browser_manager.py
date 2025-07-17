@@ -97,7 +97,7 @@ class BrowserManager:
         except Exception as e:
             logger.warning(f"Failed to ensure Xvfb running: {e}")
 
-    async def _launch_browser(self, playwright, profile: Profile):
+    async def launch_browser(self, playwright, profile: Profile):
         """Запуск браузера с настройками профиля"""
         browser_settings = profile.browser_settings or {}
 

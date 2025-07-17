@@ -203,6 +203,15 @@
                     <PlusIcon v-else class="h-4 w-4 mr-2"/>
                     {{ spawningTasks ? 'Создание задач...' : 'Создать задачи нагула' }}
                 </button>
+                
+                <!-- кнопка мониторинга -->
+                <button
+                    @click="$emit('show-tasks')"
+                    class="w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                >
+                    <ClockIcon class="h-4 w-4 mr-2"/>
+                    Мониторинг задач
+                </button>
 
                 <!-- Кнопка изменения настроек -->
                 <button
@@ -227,7 +236,7 @@
 
 <script setup lang="ts">
 import {ref} from 'vue'
-import {PlusIcon, ExclamationTriangleIcon} from '@heroicons/vue/24/outline'
+import {PlusIcon, ExclamationTriangleIcon, ClockIcon} from '@heroicons/vue/24/outline'
 import {api} from '@/api'
 
 
@@ -239,6 +248,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
     edit: []
     refresh: []
+    'show-tasks': []
 }>()
 
 async function spawnNurtureTasks() {
