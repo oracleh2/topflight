@@ -60,6 +60,92 @@
             </div>
         </div>
 
+        <!-- Лимиты нагуленных профилей -->
+        <div class="space-y-4">
+            <h5 class="text-sm font-medium text-gray-900 flex items-center">
+                <UsersIcon class="h-4 w-4 mr-2 text-blue-500"/>
+                Лимиты нагуленных профилей
+            </h5>
+
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- Минимальное количество профилей -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Минимальное количество профилей
+                            <span class="text-red-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <input
+                                v-model.number="config.min_profiles_limit"
+                                type="number"
+                                min="1"
+                                max="10000"
+                                required
+                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 pr-12"
+                                placeholder="10"
+                            />
+                            <div class="absolute inset-y-0 right-0 flex items-center pr-3">
+                                <span class="text-gray-500 text-sm">проф.</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Минимальное количество профилей, которые должны быть нагулены
+                        </p>
+                    </div>
+
+                    <!-- Максимальное количество профилей -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Максимальное количество профилей
+                            <span class="text-red-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <input
+                                v-model.number="config.max_profiles_limit"
+                                type="number"
+                                min="1"
+                                max="10000"
+                                required
+                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 pr-12"
+                                placeholder="100"
+                            />
+                            <div class="absolute inset-y-0 right-0 flex items-center pr-3">
+                                <span class="text-gray-500 text-sm">проф.</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Максимальное количество профилей для нагула
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Валидация лимитов -->
+                <div v-if="profileLimitsError"
+                     class="mt-3 p-3 bg-red-50 border border-red-200 rounded-md">
+                    <div class="flex items-center">
+                        <ExclamationTriangleIcon class="h-4 w-4 text-red-500 mr-2"/>
+                        <p class="text-sm text-red-600">{{ profileLimitsError }}</p>
+                    </div>
+                </div>
+
+                <!-- Информационная подсказка -->
+                <div class="mt-3 p-3 bg-blue-100 border border-blue-300 rounded-md">
+                    <div class="flex items-start">
+                        <InformationCircleIcon class="h-4 w-4 text-blue-600 mr-2 mt-0.5"/>
+                        <div class="text-sm text-blue-700">
+                            <p class="font-medium">Как работают лимиты:</p>
+                            <ul class="mt-1 space-y-1 text-xs">
+                                <li>• При достижении минимума система продолжает нагул</li>
+                                <li>• При достижении максимума нагул приостанавливается</li>
+                                <li>• Лимиты помогают контролировать ресурсы и затраты</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Поисковые системы (для search_based и mixed_nurture) -->
         <div v-if="needsSearchEngines">
             <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -284,7 +370,13 @@
 
 <script setup lang="ts">
 import {ref, computed, watch, onMounted} from 'vue'
-import {CheckCircleIcon, XCircleIcon} from '@heroicons/vue/24/outline'
+import {
+    CheckCircleIcon,
+    XCircleIcon,
+    InformationCircleIcon,
+    ExclamationTriangleIcon,
+    UsersIcon
+} from '@heroicons/vue/24/outline'
 import {useStrategiesStore} from '@/stores/strategies'
 import DataSourceImport from '@/components/strategies/DataSourceImport.vue'
 
@@ -322,7 +414,9 @@ interface ProfileNurtureConfig {
         source_url?: string
         data_content?: string
         refresh_on_each_cycle: boolean
-    }
+    },
+    min_profiles_limit: number
+    max_profiles_limit: number
 }
 
 const props = withDefaults(defineProps<{
@@ -387,6 +481,29 @@ const needsQueries = computed(() => {
 
 const needsDirectSites = computed(() => {
     return ['direct_visits', 'mixed_nurture'].includes(config.value.nurture_type)
+})
+
+const profileLimitsError = computed(() => {
+    const min = config.value.min_profiles_limit
+    const max = config.value.max_profiles_limit
+
+    if (!min || !max) {
+        return 'Укажите минимальное и максимальное количество профилей'
+    }
+
+    if (min < 1 || max < 1) {
+        return 'Количество профилей должно быть больше 0'
+    }
+
+    if (min > max) {
+        return 'Минимальное количество не может быть больше максимального'
+    }
+
+    if (max > 10000) {
+        return 'Максимальное количество не может превышать 10,000'
+    }
+
+    return null
 })
 
 // Инициализация direct_sites_source если нужно
@@ -473,6 +590,16 @@ watch(config, async (newConfig) => {
         console.warn('Configuration validation failed:', error)
     }
 }, {deep: true})
+watch([
+    () => config.value.min_profiles_limit,
+    () => config.value.max_profiles_limit
+], () => {
+    // Автоисправление: если мин > макс, то макс = мин
+    if (config.value.min_profiles_limit > config.value.max_profiles_limit) {
+        config.value.max_profiles_limit = config.value.min_profiles_limit
+    }
+})
+
 
 onMounted(() => {
     // Инициализация по умолчанию

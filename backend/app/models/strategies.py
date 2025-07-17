@@ -77,6 +77,11 @@ class UserStrategy(Base):
     strategy_proxies = relationship(
         "StrategyProxy", back_populates="strategy", cascade="all, delete-orphan"
     )
+    nurtured_profiles = relationship(
+        "Profile",
+        foreign_keys="Profile.nurture_strategy_id",
+        back_populates="nurture_strategy",
+    )
 
 
 class StrategyDataSource(Base):

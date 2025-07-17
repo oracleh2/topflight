@@ -47,6 +47,14 @@ class Profile(Base, UUIDMixin, TimestampMixin):
 
     # Статус и использование
     is_warmed_up = Column(Boolean, default=False)
+
+    nurture_strategy_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user_strategies.id"),
+        nullable=True,
+        comment="ID стратегии нагула профиля",
+    )
+
     last_used = Column(DateTime)
     warmup_sites_visited = Column(Integer, default=0)
     status = Column(
@@ -81,6 +89,12 @@ class Profile(Base, UUIDMixin, TimestampMixin):
     )
     strategy_proxy_assignments = relationship(
         "StrategyProxyAssignment", back_populates="profile"
+    )
+
+    nurture_strategy = relationship(
+        "UserStrategy",
+        foreign_keys=[nurture_strategy_id],
+        back_populates="nurtured_profiles",
     )
 
 

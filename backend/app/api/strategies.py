@@ -38,6 +38,7 @@ try:
         StrategyValidationResponse,
         StrategyValidationRequest,
         StrategyType,
+        DataSourceResponse,
     )
 except ImportError as e:
     print(f"Warning: Could not import some strategy schemas: {e}")
@@ -66,12 +67,19 @@ except ImportError as e:
 
     class UserStrategyResponse(BaseModel):
         id: str
+        user_id: str
+        template_id: Optional[str]
         name: str
-        strategy_type: str
+        strategy_type: StrategyType
         config: Dict[str, Any]
         created_at: datetime
         updated_at: datetime
         is_active: bool
+        data_sources: List["DataSourceResponse"] = []
+        nurture_status: Optional[Dict[str, Any]] = None
+
+        class Config:
+            from_attributes = True
 
     class DataSourceCreate(BaseModel):
         source_type: str
@@ -219,48 +227,48 @@ async def get_user_strategies(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/", response_model=List[UserStrategyResponse])
-async def get_user_strategies(
-    strategy_type: Optional[StrategyType] = None,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-):
-    """Получить список стратегий пользователя с информацией о лимитах"""
-
-    query = select(UserStrategy).where(UserStrategy.user_id == current_user.id)
-
-    if strategy_type:
-        query = query.where(UserStrategy.strategy_type == strategy_type)
-
-    query = query.order_by(UserStrategy.created_at.desc())
-
-    result = await session.execute(query)
-    strategies = result.scalars().all()
-
-    # Для стратегий нагула профилей добавляем информацию о лимитах
-    limits_service = ProfileNurtureLimitsService(session)
-    strategies_with_limits = []
-
-    for strategy in strategies:
-        strategy_dict = {
-            "id": str(strategy.id),
-            "name": strategy.name,
-            "description": strategy.description,
-            "strategy_type": strategy.strategy_type,
-            "config": strategy.config,
-            "is_active": strategy.is_active,
-            "created_at": strategy.created_at,
-            "updated_at": strategy.updated_at,
-        }
-
-        # Добавляем информацию о лимитах для стратегий нагула
-        if strategy.strategy_type == StrategyType.PROFILE_NURTURE:
-            status = await limits_service.check_strategy_status(str(strategy.id))
-            strategy_dict["nurture_status"] = status
-
-        strategies_with_limits.append(strategy_dict)
-
-    return strategies_with_limits
+# @router.get("/", response_model=List[UserStrategyResponse])
+# async def get_user_strategies(
+#     strategy_type: Optional[StrategyType] = None,
+#     current_user: User = Depends(get_current_user),
+#     session: AsyncSession = Depends(get_session),
+# ):
+#     """Получить список стратегий пользователя с информацией о лимитах"""
+#
+#     query = select(UserStrategy).where(UserStrategy.user_id == current_user.id)
+#
+#     if strategy_type:
+#         query = query.where(UserStrategy.strategy_type == strategy_type)
+#
+#     query = query.order_by(UserStrategy.created_at.desc())
+#
+#     result = await session.execute(query)
+#     strategies = result.scalars().all()
+#
+#     # Для стратегий нагула профилей добавляем информацию о лимитах
+#     limits_service = ProfileNurtureLimitsService(session)
+#     strategies_with_limits = []
+#
+#     for strategy in strategies:
+#         strategy_dict = {
+#             "id": str(strategy.id),
+#             "name": strategy.name,
+#             "description": strategy.description,
+#             "strategy_type": strategy.strategy_type,
+#             "config": strategy.config,
+#             "is_active": strategy.is_active,
+#             "created_at": strategy.created_at,
+#             "updated_at": strategy.updated_at,
+#         }
+#
+#         # Добавляем информацию о лимитах для стратегий нагула
+#         if strategy.strategy_type == StrategyType.PROFILE_NURTURE:
+#             status = await limits_service.check_strategy_status(str(strategy.id))
+#             strategy_dict["nurture_status"] = status
+#
+#         strategies_with_limits.append(strategy_dict)
+#
+#     return strategies_with_limits
 
 
 @router.post("/", response_model=UserStrategyResponse)

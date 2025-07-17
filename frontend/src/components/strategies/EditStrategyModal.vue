@@ -262,6 +262,8 @@ interface ProfileNurtureConfig {
         direct_visits: number
     }
     direct_sites_source?: any
+    min_profiles_limit: number
+    max_profiles_limit: number
 }
 
 const props = defineProps<Props>()

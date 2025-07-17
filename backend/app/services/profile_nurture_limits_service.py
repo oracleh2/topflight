@@ -24,7 +24,7 @@ class ProfileNurtureLimitsService:
         """Получить количество нагуленных профилей для стратегии"""
         query = select(func.count(Profile.id)).where(
             and_(
-                # Profile.nurture_strategy_id == strategy_id,
+                Profile.nurture_strategy_id == strategy_id,
                 Profile.is_warmed_up == True,
                 Profile.status == "active",
             )
@@ -44,9 +44,35 @@ class ProfileNurtureLimitsService:
         strategy = result.scalar_one_or_none()
 
         if not strategy:
+            print(f"❌ Strategy not found: {strategy_id}")
             return {"min_limit": 0, "max_limit": 0}
 
         config = strategy.config or {}
+
+        # ✅ ИСПРАВЛЕНО: Используем правильные поля из конфигурации
+        # Поскольку в конфигурации нет min_profiles_limit и max_profiles_limit,
+        # используем target_cookies как базу для расчета лимитов
+
+        # Сначала проверяем, есть ли уже установленные лимиты
+        min_limit = config.get("min_profiles_limit", None)
+        max_limit = config.get("max_profiles_limit", None)
+
+        # Если лимиты не установлены, используем target_cookies
+        if min_limit is None or max_limit is None:
+            target_cookies = config.get("target_cookies", {})
+
+            # Используем target_cookies для расчета лимитов профилей
+            # Предполагаем, что каждый профиль должен иметь от min до max куков
+            min_cookies = target_cookies.get("min", 10)
+            max_cookies = target_cookies.get("max", 100)
+
+            # Рассчитываем количество профилей на основе куков
+            # Можно настроить эту логику согласно бизнес-требованиям
+            if min_limit is None:
+                min_limit = max(1, min_cookies // 10)  # Минимум 1 профиль на 10 куков
+            if max_limit is None:
+                max_limit = max(10, max_cookies // 5)  # Максимум 1 профиль на 5 куков
+
         return {
             "min_limit": config.get("min_profiles_limit", 10),
             "max_limit": config.get("max_profiles_limit", 100),

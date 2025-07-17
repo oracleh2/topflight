@@ -299,6 +299,7 @@ class UserStrategyResponse(BaseModel):
     updated_at: datetime
     is_active: bool
     data_sources: List["DataSourceResponse"] = []
+    nurture_status: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

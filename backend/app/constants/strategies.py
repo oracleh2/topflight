@@ -208,6 +208,8 @@ DEFAULT_PROFILE_NURTURE_CONFIG = {
         "random_clicks": True,
     },
     "proportions": {"search_visits": 70, "direct_visits": 30},  # Для смешанного типа
+    "min_profiles_limit": 10,
+    "max_profiles_limit": 100,
 }
 
 
