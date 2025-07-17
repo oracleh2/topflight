@@ -40,6 +40,13 @@ class Task(Base, UUIDMixin, TimestampMixin):
     # ДОБАВЛЯЕМ ПОЛЕ USER_ID
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
+    strategy_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user_strategies.id"),
+        nullable=True,
+        comment="ID стратегии для задачи (если применимо)",
+    )
+
     # Параметры задачи в JSON
     parameters = Column(JSON)  # {"keyword": "...", "pages": 10, "profile_id": "..."}
 
@@ -58,6 +65,7 @@ class Task(Base, UUIDMixin, TimestampMixin):
     # Relationships
     profile = relationship("Profile")
     parse_results = relationship("ParseResult", back_populates="task")
+    strategy = relationship("UserStrategy", foreign_keys=[strategy_id])
 
     @property
     def debug_enabled(self) -> bool:

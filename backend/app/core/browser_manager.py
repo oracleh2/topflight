@@ -399,7 +399,10 @@ class BrowserManager:
             return None
 
     async def create_profile(
-        self, device_type: DeviceType, name: Optional[str] = None
+        self,
+        device_type: DeviceType,
+        name: Optional[str] = None,
+        nurture_strategy: Optional[str] = None,
     ) -> Profile:
         """Создает новый профиль для указанного типа устройства"""
         session = await self.get_session()
@@ -424,6 +427,7 @@ class BrowserManager:
                 user_agent=fingerprint["browser"]["user_agent"],
                 fingerprint=fingerprint,
                 browser_settings=browser_settings,
+                nurture_strategy_id=nurture_strategy,
                 status="new",
             )
 
