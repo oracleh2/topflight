@@ -12,6 +12,7 @@ from .api import (
     strategies,
     profiles,
     strategy_proxy,
+    existing_tasks_debug,
 )
 from .config import settings
 
@@ -58,6 +59,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(domains.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
+app.include_router(existing_tasks_debug.router, prefix="/api/v1")
 app.include_router(proxies.router, prefix="/api/v1")
 app.include_router(strategies.router, prefix="/api/v1")
 app.include_router(strategy_proxy.router, prefix="/api/v1")

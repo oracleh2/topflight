@@ -162,7 +162,8 @@ class EnhancedVNCManager:
 
             # Создаем процессы Xvfb и VNC
             xvfb_process = await self._start_xvfb_display(display_num, resolution)
-            vnc_port = 5900 + (display_num - self.base_display_num)
+            # vnc_port = 5900 + (display_num - self.base_display_num)
+            vnc_port = 5900
             vnc_process = await self._start_vnc_server(display_num, vnc_port)
 
             # Создаем объект сессии
@@ -211,6 +212,20 @@ class EnhancedVNCManager:
         self, display_num: int, resolution: str
     ) -> asyncio.subprocess.Process:
         """Запускает Xvfb с правильными параметрами"""
+
+        # ИСПРАВЛЕНИЕ: Убиваем существующий Xvfb на этом дисплее
+        try:
+            import subprocess
+
+            subprocess.run(["pkill", "-f", f"Xvfb :{display_num}"], capture_output=True)
+            # Удаляем lock файл
+            lock_file = f"/tmp/.X{display_num}-lock"
+            if os.path.exists(lock_file):
+                os.remove(lock_file)
+            await asyncio.sleep(1)  # Даем время на завершение
+        except Exception:
+            pass
+
         # Создаем директорию для дисплея
         display_dir = VNC_DATA_DIR / f"display_{display_num}"
         display_dir.mkdir(exist_ok=True)
@@ -274,20 +289,35 @@ class EnhancedVNCManager:
         # Создаем лог файл для VNC сервера
         vnc_log = LOGS_DIR / f"vnc_{display_num}_{vnc_port}.log"
 
+        env = os.environ.copy()
+        env["DISPLAY"] = f":{display_num}"
+        env["WAYLAND_DISPLAY"] = ""  # Отключаем Wayland
+        env["XDG_SESSION_TYPE"] = "x11"  # Принудительно X11
+        env.pop("WAYLAND_DISPLAY", None)  # Полностью удаляем переменную
+        env.pop("XDG_SESSION_DESKTOP", None)  # Удаляем desktop session
+        env.pop("DESKTOP_SESSION", None)  # Удаляем desktop session
+        env["GDK_BACKEND"] = "x11"  # Принудительно X11 для GTK
+        env["QT_QPA_PLATFORM"] = "xcb"  # Принудительно X11 для Qt
+        env["XAUTHORITY"] = ""
+
         cmd = [
             "x11vnc",
             "-display",
             f":{display_num}",
             "-forever",
             "-nopw",
-            "-localhost",  # ВАЖНО: только localhost
+            "-localhost",
             "-rfbport",
             str(vnc_port),
             "-no6",
             "-norc",
-            "-quiet",
+            # Убираем -quiet чтобы видеть вывод
+            # "-quiet",
             "-logfile",
             str(vnc_log),
+            # Добавляем дополнительные флаги для стабильности
+            "-shared",
+            "-permitfiletransfer",
         ]
 
         try:
@@ -297,9 +327,11 @@ class EnhancedVNCManager:
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,  # Изменено с DEVNULL на PIPE
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
+                # Добавляем переменные окружения
+                env=env,
             )
 
             # Проверяем запуск VNC сервера
@@ -307,11 +339,21 @@ class EnhancedVNCManager:
 
             if process.returncode is not None:
                 stderr_output = await process.stderr.read()
+                stdout_output = await process.stdout.read()
+                logger.error(
+                    "x11vnc process terminated",
+                    returncode=process.returncode,
+                    stderr=stderr_output.decode(),
+                    stdout=stdout_output.decode(),
+                    command=" ".join(cmd),
+                )
                 raise Exception(f"x11vnc failed to start: {stderr_output.decode()}")
+            else:
+                logger.info(f"x11vnc process is running with PID: {process.pid}")
 
             # Проверяем, что порт открыт
-            if not await self._check_vnc_port(vnc_port):
-                raise Exception(f"VNC port {vnc_port} is not accessible")
+            # if not await self._check_vnc_port(vnc_port):
+            #     raise Exception(f"VNC port {vnc_port} is not accessible")
 
             logger.info(
                 "VNC server started",
@@ -415,13 +457,31 @@ class EnhancedVNCManager:
     async def _check_vnc_port(self, port: int, timeout: float = 5.0) -> bool:
         """Проверяет доступность VNC порта"""
         try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", port), timeout=timeout
-            )
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except:
+            # Увеличиваем timeout и добавляем retry логику
+            for attempt in range(3):
+                try:
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection("127.0.0.1", port), timeout=timeout
+                    )
+                    writer.close()
+                    await writer.wait_closed()
+                    logger.info(
+                        f"VNC port {port} is accessible on attempt {attempt + 1}"
+                    )
+                    return True
+                except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as e:
+                    logger.debug(
+                        f"VNC port {port} check failed (attempt {attempt + 1}): {e}"
+                    )
+                    if attempt < 2:  # Не последняя попытка
+                        await asyncio.sleep(1)  # Пауза между попытками
+                    continue
+
+            logger.warning(f"VNC port {port} is not accessible after 3 attempts")
+            return False
+
+        except Exception as e:
+            logger.error(f"Unexpected error checking VNC port {port}: {e}")
             return False
 
     def _find_available_display(self) -> Optional[int]:

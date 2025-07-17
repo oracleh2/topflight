@@ -133,74 +133,117 @@ class BrowserManager:
             ],
         }
 
+        logger.info(
+            "Launching browser",
+            profile_id=str(profile.id),
+            device_type=profile.device_type.value,
+            user_agent=(
+                profile.user_agent[:50] + "..."
+                if len(profile.user_agent) > 50
+                else profile.user_agent
+            ),
+        )
+
         return await playwright.chromium.launch(**launch_options)
 
-    async def _launch_debug_browser_with_vnc(
-        self, vnc_session, profile: Profile
-    ) -> Browser:
-        """Запускает браузер с привязкой к VNC дисплею"""
+    async def launch_debug_browser_with_vnc(
+        self, task_id: str, device_type: DeviceType, profile: Optional[Profile] = None
+    ) -> Dict[str, Any]:
+        """Запускает браузер в debug режиме с VNC для реального просмотра"""
+        try:
+            # Импортируем enhanced vnc manager
+            from .enhanced_vnc_manager import enhanced_vnc_manager
 
-        # Настраиваем окружение для VNC
-        self._setup_display_environment(vnc_session)
-
-        browser_settings = profile.browser_settings or {}
-
-        # Специальные настройки для дебага
-        launch_options = {
-            "headless": False,  # Обязательно НЕ headless для VNC
-            "slow_mo": 500,  # Замедление для наблюдения
-            "devtools": True,  # Включаем DevTools
-            "args": [
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=VizDisplayCompositor",
-                "--disable-dev-shm-usage",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-field-trial-config",
-                "--disable-ipc-flooding-protection",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-default-apps",
-                "--disable-popup-blocking",
-                "--disable-prompt-on-repost",
-                "--disable-hang-monitor",
-                "--disable-sync",
-                "--disable-web-security",
-                "--allow-running-insecure-content",
-                "--disable-component-extensions-with-background-pages",
-                "--disable-extensions",
-                "--mute-audio",
-                f"--user-agent={profile.user_agent}",
-                f"--display={os.environ.get('DISPLAY')}",
-                # Настройки окна для адаптации под разрешение
-                f"--window-size={vnc_session.resolution.replace('x', ',')}",
-                "--start-maximized",
-            ],
-        }
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(**launch_options)
-
-            # Создаем контекст с настройками профиля
-            context = await self._create_debug_context(browser, profile, vnc_session)
-
-            # Создаем стартовую страницу
-            page = await context.new_page()
-
-            # Устанавливаем viewport под разрешение VNC
-            width, height = map(int, vnc_session.resolution.split("x"))
-            await page.set_viewport_size({"width": width - 400, "height": height - 200})
-
-            logger.info(
-                "Debug browser configured",
-                display=os.environ.get("DISPLAY"),
-                resolution=vnc_session.resolution,
-                task_id=vnc_session.task_id,
+            # Создаем VNC сессию
+            vnc_session_data = await enhanced_vnc_manager.create_debug_session(
+                task_id, device_type
             )
+            vnc_session = enhanced_vnc_manager.get_session_by_task(task_id)
 
-            return browser
+            if not vnc_session:
+                raise Exception("Failed to create VNC session")
+
+            # Получаем или создаем профиль
+            if not profile:
+                profile = await self.get_ready_profile(device_type)
+                if not profile:
+                    profile = await self.create_profile(device_type=device_type)
+
+            # Настраиваем окружение для VNC
+            os.environ["DISPLAY"] = f":{vnc_session.display_num}"
+
+            # Запускаем браузер с VNC настройками
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=False,  # ВАЖНО: НЕ headless для VNC
+                    slow_mo=1000,  # Замедление для наблюдения
+                    devtools=True,  # Включаем DevTools
+                    args=[
+                        "--no-sandbox",
+                        "--disable-blink-features=AutomationControlled",
+                        f"--user-agent={profile.user_agent}",
+                        f"--window-size={vnc_session.resolution.replace('x', ',')}",
+                        "--start-maximized",
+                    ],
+                )
+
+                # Создаем контекст
+                context = await browser.new_context(
+                    user_agent=profile.user_agent,
+                    viewport={
+                        "width": int(vnc_session.resolution.split("x")[0]) - 100,
+                        "height": int(vnc_session.resolution.split("x")[1]) - 100,
+                    },
+                )
+
+                # Добавляем debug скрипт для логирования
+                await context.add_init_script(
+                    """
+                    console.log('🔍 DEBUG MODE: Browser started for task', window.location.href);
+
+                    // Логируем все переходы
+                    window.addEventListener('beforeunload', () => {
+                        console.log('📤 Leaving:', window.location.href);
+                    });
+
+                    window.addEventListener('load', () => {
+                        console.log('📥 Loaded:', window.location.href);
+                    });
+                """
+                )
+
+                # Создаем стартовую страницу
+                page = await context.new_page()
+
+                # Сохраняем браузер в сессии для использования воркером
+                vnc_session.browser = browser
+                vnc_session.context = context
+                vnc_session.page = page
+
+                logger.info(
+                    "Debug browser launched with VNC",
+                    task_id=task_id,
+                    vnc_port=vnc_session.vnc_port,
+                    display=f":{vnc_session.display_num}",
+                    resolution=vnc_session.resolution,
+                )
+
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "vnc_host": vnc_session.vnc_host,
+                    "vnc_port": vnc_session.vnc_port,
+                    "display_num": vnc_session.display_num,
+                    "resolution": vnc_session.resolution,
+                    "browser_launched": True,
+                    "profile_id": str(profile.id),
+                }
+
+        except Exception as e:
+            logger.error(
+                "Failed to launch debug browser", task_id=task_id, error=str(e)
+            )
+            raise
 
     async def _create_debug_context(
         self, browser: Browser, profile: Profile, vnc_session

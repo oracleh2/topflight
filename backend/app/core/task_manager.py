@@ -1481,6 +1481,18 @@ class TaskManager:
         # Получаем конфигурацию стратегии
         config = strategy.config or {}
 
+        task_debug = True
+
+        debug_fields = {
+            "debug": True,
+            "debug_level": "verbose",
+            "log_to_console": True,
+            "debug_enabled": True,
+            "debug_device_type": device_type.value,
+            "debug_started_by": None,
+            "debug_started_at": datetime.now(timezone.utc).isoformat(),
+        }
+
         # Подготавливаем параметры задачи
         task_parameters = {
             "strategy_id": strategy_id,
@@ -1494,6 +1506,7 @@ class TaskManager:
             "queries_source": config.get("queries_source", {}),
             "behavior": config.get("behavior", {}),
             "created_at": datetime.utcnow().isoformat(),
+            **(debug_fields if task_debug else {}),
         }
 
         # Если передан конкретный профиль, добавляем его в параметры
